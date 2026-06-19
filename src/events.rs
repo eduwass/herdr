@@ -40,6 +40,14 @@ pub enum AppEvent {
         process_exited: bool,
         observed_at: Instant,
     },
+    /// The foreground command running in a pane changed. `command` is the
+    /// display name of a non-shell foreground process (script or agent), or
+    /// `None` when the pane's own shell is in the foreground. Drives the
+    /// opt-in tmux-style "kill pane running <cmd>?" close confirmation.
+    ForegroundCommandChanged {
+        pane_id: PaneId,
+        command: Option<String>,
+    },
     /// Hook-authoritative agent state was reported for a pane.
     HookStateReported {
         pane_id: PaneId,

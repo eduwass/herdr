@@ -410,27 +410,43 @@ struct ProcessProbeResult {
     foreground_is_pane_shell: bool,
     agent: Option<Agent>,
     process_name: Option<String>,
+    /// Display name of the foreground command when it is NOT the pane's own
+    /// shell (a running script or agent). `None` when the shell is foreground.
+    /// Drives the opt-in tmux-style "kill pane running <cmd>?" confirmation.
+    foreground_command: Option<String>,
 }
 
 fn probe_foreground_process(pid: u32, foreground_pgid: Option<u32>) -> ProcessProbeResult {
     if let Some(job) = foreground_pgid.and_then(crate::detect::foreground_group_leader_job) {
+        let foreground_is_pane_shell = job.processes.iter().any(|p| p.pid == pid);
         if let Some((agent, process_name)) = crate::detect::identify_agent_in_job(&job) {
             return ProcessProbeResult {
                 process_group_id: Some(job.process_group_id),
-                foreground_is_pane_shell: job.processes.iter().any(|p| p.pid == pid),
+                foreground_is_pane_shell,
                 agent: Some(agent),
-                process_name: Some(process_name),
+                process_name: Some(process_name.clone()),
+                foreground_command: (!foreground_is_pane_shell).then_some(process_name),
             };
         }
     }
 
     if let Some(job) = crate::detect::foreground_job(pid) {
         let identified = crate::detect::identify_agent_in_job(&job);
+        let foreground_is_pane_shell = job.processes.iter().any(|p| p.pid == pid);
+        let foreground_command = if foreground_is_pane_shell {
+            None
+        } else {
+            identified
+                .as_ref()
+                .map(|(_, process_name)| process_name.clone())
+                .or_else(|| crate::detect::foreground_command_in_job(&job))
+        };
         return ProcessProbeResult {
             process_group_id: Some(job.process_group_id),
-            foreground_is_pane_shell: job.processes.iter().any(|p| p.pid == pid),
+            foreground_is_pane_shell,
             agent: identified.as_ref().map(|(agent, _)| *agent),
             process_name: identified.map(|(_, process_name)| process_name),
+            foreground_command,
         };
     }
 
@@ -439,6 +455,7 @@ fn probe_foreground_process(pid: u32, foreground_pgid: Option<u32>) -> ProcessPr
         foreground_is_pane_shell: false,
         agent: None,
         process_name: None,
+        foreground_command: None,
     }
 }
 
@@ -470,6 +487,7 @@ fn spawn_basic_detection_task(
         let mut last_process_check = std::time::Instant::now();
         let mut last_foreground_pgid = None;
         let mut has_process_probe = false;
+        let mut last_foreground_command: Option<String> = None;
         let mut acquisition_started_at = None;
         let mut last_content_change_at = None;
         let mut pending_foreground_shell_clear = false;
@@ -552,6 +570,15 @@ fn spawn_basic_detection_task(
                 let had_process_probe = has_process_probe;
                 has_process_probe = true;
                 let probe = probe_foreground_process(pid, foreground_pgid);
+                if probe.foreground_command != last_foreground_command {
+                    last_foreground_command = probe.foreground_command.clone();
+                    let _ = state_events
+                        .send(AppEvent::ForegroundCommandChanged {
+                            pane_id,
+                            command: probe.foreground_command.clone(),
+                        })
+                        .await;
+                }
                 let process_group_id = probe.process_group_id;
                 let foreground_is_pane_shell = probe.foreground_is_pane_shell;
                 let mut new_agent = probe.agent;
@@ -1806,6 +1833,7 @@ impl PaneRuntime {
                 let mut last_process_check = Instant::now();
                 let mut last_foreground_pgid = None;
                 let mut has_process_probe = false;
+                let mut last_foreground_command: Option<String> = None;
                 let mut acquisition_started_at = None;
                 let mut last_content_change_at = None;
                 let mut pending_foreground_shell_clear = false;
@@ -1903,6 +1931,15 @@ impl PaneRuntime {
                         has_process_probe = true;
                         if pid > 0 {
                             let probe = probe_foreground_process(pid, foreground_pgid);
+                            if probe.foreground_command != last_foreground_command {
+                                last_foreground_command = probe.foreground_command.clone();
+                                let _ = state_events
+                                    .send(AppEvent::ForegroundCommandChanged {
+                                        pane_id,
+                                        command: probe.foreground_command.clone(),
+                                    })
+                                    .await;
+                            }
                             let process_name = probe.process_name;
                             let process_group_id = probe.process_group_id;
                             let foreground_is_pane_shell = probe.foreground_is_pane_shell;
