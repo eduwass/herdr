@@ -1442,6 +1442,11 @@ impl App {
         let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
             return Err(pane_not_found(id, &target.pane_id));
         };
+        // Popups live outside the layout tree: close via the dedicated teardown
+        // (drops the popup, tears down its terminal/runtime, restores tile focus).
+        if self.close_popup_pane(pane_id) {
+            return Ok(());
+        }
         let workspace_id = self.public_workspace_id(ws_idx);
         if self.state.close_pane_would_close_workspace(ws_idx, pane_id)
             && self.state.confirm_implicit_worktree_group_close(ws_idx)

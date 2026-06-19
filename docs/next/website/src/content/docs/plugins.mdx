@@ -259,12 +259,51 @@ while Windows clients connect to a named pipe. CLI calls through
 Manifest pane `placement` defaults to `overlay`, which opens a temporary zoomed
 overlay over the active pane and restores the previous focus and zoom when it
 closes. A `plugin.pane.open` request can override the manifest placement with
-`overlay`, `split`, `tab`, or `zoomed`.
+`overlay`, `split`, `tab`, `zoomed`, or `popup`.
 
 Plugin panes are normal Herdr panes after they open. Plugins can call standard
 pane APIs such as `pane.move`, `pane.swap`, `pane.resize`, and `pane.zoom`
 through the socket or CLI; Herdr keeps plugin pane ownership attached to the
 underlying pane when it moves across tabs or workspaces.
+
+### Popup panes
+
+`placement = "popup"` opens an ephemeral floating terminal centered on top of
+the tiled layout, similar to tmux `display-popup`. A popup lives **outside** the
+tiling tree: it is excluded from split, resize, the zoom toggle, and tab/pane
+navigation, and it is **dropped on session restore and live-handoff** (popups
+are intentionally not persisted). Closing a popup — with `Esc`, the
+`plugin.pane.close` API, or when the inner process exits — returns focus to the
+previously focused tiled pane. A popup pane is addressed by its raw pane id
+(`p_<workspace>_<id>`, returned in the open response); it has no public pane
+number.
+
+Style and size a popup with an optional `[panes.popup]` table in the manifest,
+and override any field per call with `plugin.pane.open`'s `popup` object (per-call
+fields win field-by-field over the manifest defaults):
+
+```toml
+[[panes]]
+id = "board"
+title = "Board"
+placement = "popup"
+command = ["herdr-board"]
+
+[panes.popup]
+width = "80%"      # percent of the terminal width, or an absolute cell count (e.g. 60)
+height = 24         # string "50%" or integer cell count
+border = true       # draw a border (default: true)
+border_style = "rounded"  # single | double | rounded | thick (default: single)
+border_color = "#89b4fa"  # hex, named, or rgb(r,g,b); defaults to the theme accent
+padding = 1         # cells of inner margin between border and content (default: 0)
+bg = "#1e1e2e"     # popup background color; defaults to the theme panel background
+title = "Board"     # optional border title
+```
+
+All `[panes.popup]` fields are optional. Dimensions accept either a percentage
+string (`"80%"`, clamped to the terminal axis) or an absolute cell count
+(`60`); they are clamped to a minimum content size and re-centered for the
+current terminal size.
 
 On Windows, build commands, action commands, and event commands resolve common
 `PATHEXT` shims such as `npm.cmd`, `bun.cmd`, and `pnpm.cmd` when the bare

@@ -86,9 +86,33 @@ impl App {
             return None;
         }
 
+        // Plain Esc closes a focused popup (ephemeral, like display-popup).
+        if matches!(key_event.code, KeyCode::Esc)
+            && key_event.modifiers.is_empty()
+            && key_event.kind != crossterm::event::KeyEventKind::Release
+        {
+            if let Some(ws) = self
+                .state
+                .active
+                .and_then(|idx| self.state.workspaces.get(idx))
+            {
+                if ws.active_popup_focused() {
+                    if let Some(pane_id) = ws
+                        .active_tab()
+                        .and_then(|tab| tab.popup.as_ref())
+                        .map(|p| p.pane_id)
+                    {
+                        self.close_popup_pane(pane_id);
+                        return None;
+                    }
+                }
+            }
+        }
+
         let ws_idx = self.state.active?;
         let ws = self.state.workspaces.get(ws_idx)?;
-        let pane_id = ws.focused_pane_id()?;
+        // Route input to the popup when it holds focus; otherwise the focused tile.
+        let pane_id = ws.effective_focused_pane_id()?;
         let rt =
             self.state
                 .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)?;

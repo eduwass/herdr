@@ -493,6 +493,8 @@ fn plugin_pane_open(args: &[String]) -> std::io::Result<i32> {
     let mut cwd = None;
     let mut focus = true;
     let mut env = HashMap::new();
+    let mut popup = crate::api::schema::PopupSpec::default();
+    let mut popup_set = false;
 
     let mut index = 0;
     while index < args.len() {
@@ -566,6 +568,81 @@ fn plugin_pane_open(args: &[String]) -> std::io::Result<i32> {
                 focus = false;
                 index += 1;
             }
+            "--width" => {
+                let Some(value) = required_value(args, &mut index, "--width") else {
+                    return Ok(2);
+                };
+                let Some(dim) = parse_popup_dimension(&value) else {
+                    eprintln!("invalid --width: expected NN or NN%");
+                    return Ok(2);
+                };
+                popup.width = Some(dim);
+                popup_set = true;
+            }
+            "--height" => {
+                let Some(value) = required_value(args, &mut index, "--height") else {
+                    return Ok(2);
+                };
+                let Some(dim) = parse_popup_dimension(&value) else {
+                    eprintln!("invalid --height: expected NN or NN%");
+                    return Ok(2);
+                };
+                popup.height = Some(dim);
+                popup_set = true;
+            }
+            "--border" => {
+                popup.border = Some(true);
+                popup_set = true;
+                index += 1;
+            }
+            "--no-border" => {
+                popup.border = Some(false);
+                popup_set = true;
+                index += 1;
+            }
+            "--border-style" => {
+                let Some(value) = required_value(args, &mut index, "--border-style") else {
+                    return Ok(2);
+                };
+                let Some(style) = parse_popup_border_style(&value) else {
+                    eprintln!("invalid --border-style: expected single|double|rounded|thick");
+                    return Ok(2);
+                };
+                popup.border_style = Some(style);
+                popup_set = true;
+            }
+            "--border-color" => {
+                let Some(value) = required_value(args, &mut index, "--border-color") else {
+                    return Ok(2);
+                };
+                popup.border_color = Some(value);
+                popup_set = true;
+            }
+            "--padding" => {
+                let Some(value) = required_value(args, &mut index, "--padding") else {
+                    return Ok(2);
+                };
+                let Ok(padding) = value.parse::<u16>() else {
+                    eprintln!("invalid --padding: expected a non-negative integer");
+                    return Ok(2);
+                };
+                popup.padding = Some(padding);
+                popup_set = true;
+            }
+            "--bg" => {
+                let Some(value) = required_value(args, &mut index, "--bg") else {
+                    return Ok(2);
+                };
+                popup.bg = Some(value);
+                popup_set = true;
+            }
+            "--title" => {
+                let Some(value) = required_value(args, &mut index, "--title") else {
+                    return Ok(2);
+                };
+                popup.title = Some(value);
+                popup_set = true;
+            }
             other => {
                 eprintln!("unknown option: {other}");
                 return Ok(2);
@@ -592,7 +669,30 @@ fn plugin_pane_open(args: &[String]) -> std::io::Result<i32> {
         cwd,
         focus,
         env,
+        popup: popup_set.then_some(popup),
     }))
+}
+
+fn parse_popup_dimension(value: &str) -> Option<crate::api::schema::PopupDimension> {
+    let trimmed = value.trim();
+    if let Some(pct) = trimmed.strip_suffix('%') {
+        let pct: u16 = pct.trim().parse().ok()?;
+        Some(crate::api::schema::PopupDimension::Percent(pct.min(100)))
+    } else {
+        Some(crate::api::schema::PopupDimension::Cells(
+            trimmed.parse().ok()?,
+        ))
+    }
+}
+
+fn parse_popup_border_style(value: &str) -> Option<crate::api::schema::PopupBorderStyle> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "single" => Some(crate::api::schema::PopupBorderStyle::Single),
+        "double" => Some(crate::api::schema::PopupBorderStyle::Double),
+        "rounded" => Some(crate::api::schema::PopupBorderStyle::Rounded),
+        "thick" => Some(crate::api::schema::PopupBorderStyle::Thick),
+        _ => None,
+    }
 }
 
 fn plugin_pane_focus(args: &[String]) -> std::io::Result<i32> {
@@ -638,6 +738,7 @@ fn parse_pane_placement(value: &str) -> Option<PluginPanePlacement> {
         "split" => Some(PluginPanePlacement::Split),
         "tab" => Some(PluginPanePlacement::Tab),
         "zoomed" | "fullscreen" => Some(PluginPanePlacement::Zoomed),
+        "popup" => Some(PluginPanePlacement::Popup),
         _ => {
             eprintln!("invalid pane placement: {value}");
             None
@@ -1604,7 +1705,8 @@ fn print_plugin_action_help() {
 
 fn print_plugin_pane_help() {
     eprintln!("herdr plugin pane commands:");
-    eprintln!("  herdr plugin pane open --plugin ID --entrypoint ID [--placement overlay|split|tab|zoomed] [--workspace ID] [--target-pane PANE] [--direction right|down] [--cwd PATH] [--env KEY=VALUE] [--focus|--no-focus]");
+    eprintln!("  herdr plugin pane open --plugin ID --entrypoint ID [--placement overlay|split|tab|zoomed|popup] [--workspace ID] [--target-pane PANE] [--direction right|down] [--cwd PATH] [--env KEY=VALUE] [--focus|--no-focus]");
+    eprintln!("    popup styling: [--width NN|NN%] [--height NN|NN%] [--border|--no-border] [--border-style single|double|rounded|thick] [--border-color COLOR] [--padding N] [--bg COLOR] [--title TEXT]");
     eprintln!("  herdr plugin pane focus <pane_id>");
     eprintln!("  herdr plugin pane close <pane_id>");
 }

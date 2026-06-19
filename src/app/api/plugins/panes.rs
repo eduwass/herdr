@@ -30,6 +30,83 @@ impl App {
         self.finish_plugin_pane_open(id, ws_idx, None, new_pane, plugin.plugin_id.clone(), pane)
     }
 
+    pub(super) fn open_plugin_popup_pane(
+        &mut self,
+        id: String,
+        params: PluginPaneOpenParams,
+        plugin: &InstalledPluginInfo,
+        pane: PluginManifestPane,
+    ) -> String {
+        let Some(ws_idx) = self.state.active else {
+            return encode_error(id, "no_active_workspace", "no active workspace");
+        };
+        let context = self.current_plugin_context("plugin-pane");
+        let extra_env =
+            match self.plugin_pane_launch_env(plugin, &pane.id, params.env.clone(), &context) {
+                Ok(env) => env,
+                Err((code, message)) => return encode_error(id, &code, message),
+            };
+        let cwd = Some(self.plugin_pane_cwd(plugin, params.cwd.clone()));
+
+        // Per-call popup spec wins field-by-field over the manifest default.
+        let merged = match (&pane.popup, &params.popup) {
+            (Some(base), Some(over)) => base.merge(over),
+            (Some(base), None) => base.clone(),
+            (None, Some(over)) => over.clone(),
+            (None, None) => crate::api::schema::PopupSpec::default(),
+        };
+        let resolved = crate::workspace::ResolvedPopupSpec::from_spec(
+            &merged,
+            self.state.palette.accent,
+            self.state.palette.panel_bg,
+        );
+
+        let pane_id = crate::layout::PaneId::alloc();
+        let workspace_id = self.public_workspace_id(ws_idx);
+        let tab_idx = self.state.workspaces[ws_idx].active_tab;
+        let Some(tab_id) = self.public_tab_id(ws_idx, tab_idx) else {
+            return encode_error(id, "no_active_tab", "no active tab");
+        };
+        let public_pane_id = format!("p_{}_{}", ws_idx + 1, pane_id.raw());
+        let launch_env = crate::pane::PaneLaunchEnv::from_extra(extra_env).with_identity(
+            workspace_id,
+            tab_id,
+            public_pane_id,
+        );
+        let (rows, cols) = self.state.estimate_pane_size();
+        let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
+            return encode_error(id, "workspace_not_found", "workspace not found");
+        };
+        let Some(tab) = ws.active_tab_mut() else {
+            return encode_error(id, "no_active_tab", "no active tab");
+        };
+        let (new_pane, replaced) = match tab.spawn_popup_argv_command(
+            pane_id,
+            rows.max(4),
+            cols.max(10),
+            cwd,
+            &pane.command,
+            &launch_env,
+            self.state.pane_scrollback_limit_bytes,
+            self.state.host_terminal_theme,
+            resolved,
+        ) {
+            Ok(result) => result,
+            Err(err) => return encode_error(id, "plugin_pane_open_failed", err.to_string()),
+        };
+
+        // Tear down any popup this one replaced.
+        if let Some((replaced_pane, replaced_terminal)) = replaced {
+            self.state.plugin_panes.remove(&replaced_pane);
+            self.state
+                .remove_unattached_terminal_ids(std::iter::once(replaced_terminal));
+            self.shutdown_detached_terminal_runtimes();
+        }
+
+        self.state.mode = crate::app::Mode::Terminal;
+        self.finish_plugin_pane_open(id, ws_idx, None, new_pane, plugin.plugin_id.clone(), pane)
+    }
+
     pub(super) fn open_plugin_split_pane(
         &mut self,
         id: String,

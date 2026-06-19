@@ -101,6 +101,14 @@ impl App {
         }
 
         if let AppEvent::PaneDied { pane_id } = &ev {
+            if self.close_popup_pane(*pane_id) {
+                self.render_dirty.store(true, Ordering::Release);
+                self.render_notify.notify_one();
+                return;
+            }
+        }
+
+        if let AppEvent::PaneDied { pane_id } = &ev {
             let previous_toast = self.state.toast.clone();
             if let Some(update) = self.state.publish_pane_process_exit_if_agent(*pane_id) {
                 self.sync_full_lifecycle_authority_detection_pauses();
@@ -316,6 +324,61 @@ impl App {
             message: "copied to clipboard".to_string(),
         });
         self.copy_feedback_deadline = Some(Instant::now() + super::COPY_FEEDBACK_DURATION);
+    }
+
+    /// If `pane_id` is a popup on any workspace/tab, drop it (and its
+    /// terminal/runtime/plugin record), emit PaneExited, and return true. Focus
+    /// of the underlying tiled pane is untouched (popups never changed it), so
+    /// closing a popup returns control to the previously focused tile.
+    pub(crate) fn close_popup_pane(&mut self, pane_id: crate::layout::PaneId) -> bool {
+        let Some((ws_idx, tab_idx)) =
+            self.state
+                .workspaces
+                .iter()
+                .enumerate()
+                .find_map(|(ws_idx, ws)| {
+                    ws.tabs
+                        .iter()
+                        .position(|tab| {
+                            tab.popup
+                                .as_ref()
+                                .is_some_and(|popup| popup.pane_id == pane_id)
+                        })
+                        .map(|tab_idx| (ws_idx, tab_idx))
+                })
+        else {
+            return false;
+        };
+
+        let public_pane_id = self.public_pane_id(ws_idx, pane_id);
+        let removed = self
+            .state
+            .workspaces
+            .get_mut(ws_idx)
+            .and_then(|ws| ws.tabs.get_mut(tab_idx))
+            .and_then(|tab| tab.take_popup());
+        let Some((_, terminal_id)) = removed else {
+            return false;
+        };
+
+        self.state.plugin_panes.remove(&pane_id);
+        self.state
+            .remove_unattached_terminal_ids(std::iter::once(terminal_id));
+        self.shutdown_detached_terminal_runtimes();
+
+        if let Some(public_pane_id) = public_pane_id {
+            self.emit_event(crate::api::schema::EventEnvelope {
+                event: crate::api::schema::EventKind::PaneExited,
+                data: crate::api::schema::EventData::PaneExited {
+                    pane_id: public_pane_id,
+                    workspace_id: self.public_workspace_id(ws_idx),
+                },
+            });
+        }
+        if self.state.active == Some(ws_idx) {
+            self.state.mode = Mode::Terminal;
+        }
+        true
     }
 
     fn restore_overlay_after_exit(&mut self, overlay: OverlayPaneState) {

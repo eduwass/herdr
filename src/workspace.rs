@@ -16,16 +16,20 @@ use crate::terminal::{TerminalId, TerminalRuntime, TerminalRuntimeRegistry, Term
 
 mod aggregate;
 mod git;
+mod popup;
 mod tab;
 
 #[cfg(test)]
 use self::git::git_ahead_behind;
+#[cfg(test)]
+pub use self::popup::PopupSize;
 pub(crate) use self::tab::MovedPane;
 pub use self::{
     git::{
         derive_label_from_cwd, git_branch, git_space_metadata, git_status_cache_key,
         GitSpaceMetadata, GitStatusCacheEntry,
     },
+    popup::ResolvedPopupSpec,
     tab::{NewPane, Tab},
 };
 
@@ -1098,13 +1102,37 @@ impl Workspace {
     }
 
     pub fn find_tab_index_for_pane(&self, pane_id: PaneId) -> Option<usize> {
-        self.tabs
-            .iter()
-            .position(|tab| tab.panes.contains_key(&pane_id))
+        self.tabs.iter().position(|tab| {
+            tab.panes.contains_key(&pane_id)
+                || tab
+                    .popup
+                    .as_ref()
+                    .is_some_and(|popup| popup.pane_id == pane_id)
+        })
     }
 
     pub fn pane_state(&self, pane_id: PaneId) -> Option<&PaneState> {
-        self.tabs.iter().find_map(|tab| tab.panes.get(&pane_id))
+        self.tabs.iter().find_map(|tab| {
+            if let Some(popup) = &tab.popup {
+                if popup.pane_id == pane_id {
+                    return Some(&popup.state);
+                }
+            }
+            tab.panes.get(&pane_id)
+        })
+    }
+
+    /// Pane id that should receive input/cursor for the active tab, honoring an
+    /// active popup. Falls back to the tiled focused pane.
+    pub fn effective_focused_pane_id(&self) -> Option<PaneId> {
+        self.active_tab().map(|tab| tab.effective_focused_pane_id())
+    }
+
+    /// Whether the active tab has a focused popup.
+    pub fn active_popup_focused(&self) -> bool {
+        self.active_tab()
+            .map(|tab| tab.popup.is_some() && tab.popup_focused)
+            .unwrap_or(false)
     }
 
     pub fn terminal_id(&self, pane_id: PaneId) -> Option<&TerminalId> {
@@ -1120,6 +1148,17 @@ impl Workspace {
             Some(idx) => idx,
             None => return false,
         };
+        // Popups live outside the layout tree; never treat one as a tile here
+        // (that would mis-fire the "last pane closes the tab" branch). Popup
+        // teardown goes through `App::close_popup_pane`.
+        if self.tabs[tab_idx]
+            .popup
+            .as_ref()
+            .is_some_and(|popup| popup.pane_id == pane_id)
+            && !self.tabs[tab_idx].panes.contains_key(&pane_id)
+        {
+            return false;
+        }
         let pane_count = self.tabs[tab_idx].layout.pane_count();
         let tab_count = self.tabs.len();
         if pane_count <= 1 {
@@ -1190,6 +1229,8 @@ impl Workspace {
             panes,
             runtimes: HashMap::new(),
             zoomed: false,
+            popup: None,
+            popup_focused: false,
             events,
             render_notify,
             render_dirty,
@@ -1241,6 +1282,8 @@ impl Workspace {
             panes,
             runtimes: HashMap::new(),
             zoomed: false,
+            popup: None,
+            popup_focused: false,
             events,
             render_notify,
             render_dirty,
@@ -1283,6 +1326,32 @@ impl Workspace {
         );
         assert_eq!(ws.find_tab_index_for_pane(final_root), Some(1));
         ws
+    }
+
+    /// Attach a synthetic popup to the active tab (no real PTY) and focus it.
+    /// Returns the popup's pane id. The popup is deliberately NOT registered in
+    /// `panes`/`layout`/`public_pane_numbers`.
+    pub(crate) fn test_attach_popup(&mut self) -> PaneId {
+        let pane_id = PaneId::alloc();
+        let terminal_id = TerminalId::alloc();
+        let spec = popup::ResolvedPopupSpec {
+            width: popup::PopupSize::Percent(60),
+            height: popup::PopupSize::Percent(60),
+            border: true,
+            border_style: crate::api::schema::PopupBorderStyle::Single,
+            border_color: ratatui::style::Color::Reset,
+            padding: 0,
+            bg: ratatui::style::Color::Reset,
+            title: None,
+        };
+        let tab = self.active_tab_mut().expect("workspace must have tab");
+        tab.popup = Some(popup::Popup::new(
+            pane_id,
+            PaneState::new(terminal_id),
+            spec,
+        ));
+        tab.popup_focused = true;
+        pane_id
     }
 
     pub(crate) fn assert_invariants_for_test(&self) {
@@ -1602,6 +1671,100 @@ mod tests {
         assert_eq!(ws.tabs[2].number, 1);
         assert_eq!(ws.tabs[2].root_pane, moved_root);
         assert_eq!(ws.tabs[ws.active_tab].root_pane, active_root);
+        ws.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn popup_is_excluded_from_tiling_and_invariants_hold() {
+        let mut ws = Workspace::test_new("popup");
+        let tile = ws.test_split(Direction::Horizontal);
+        let tile_count = ws.active_tab().unwrap().layout.pane_count();
+
+        let popup = ws.test_attach_popup();
+
+        // Popup is NOT in the layout tree, pane map, or public pane numbers.
+        let tab = ws.active_tab().unwrap();
+        assert_eq!(
+            tab.layout.pane_count(),
+            tile_count,
+            "popup must not appear in the tiling layout"
+        );
+        assert!(!tab.layout.pane_ids().contains(&popup));
+        assert!(!tab.panes.contains_key(&popup));
+        assert!(!ws.public_pane_numbers.contains_key(&popup));
+        // Tiles keep their public numbers; the popup has none.
+        assert!(ws.public_pane_number(tile).is_some());
+        assert!(ws.public_pane_number(popup).is_none());
+        // Core invariants (layout == panes == public numbers) still hold.
+        ws.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn popup_is_reachable_for_input_routing_but_not_tile_focus() {
+        let mut ws = Workspace::test_new("popup");
+        let root = ws.focused_pane_id().unwrap();
+        let popup = ws.test_attach_popup();
+
+        // Tile focus is unchanged; effective focus follows the popup.
+        assert_eq!(ws.focused_pane_id(), Some(root));
+        assert_eq!(ws.effective_focused_pane_id(), Some(popup));
+        assert!(ws.active_popup_focused());
+        // The popup's terminal/pane-state are resolvable (so input/render find it).
+        assert!(ws.pane_state(popup).is_some());
+        assert!(ws.terminal_id(popup).is_some());
+    }
+
+    #[test]
+    fn split_and_resize_ignore_popup_then_invariants_hold() {
+        let mut ws = Workspace::test_new("popup");
+        let popup = ws.test_attach_popup();
+
+        // Splitting while a popup is open operates only on tiles.
+        let before = ws.active_tab().unwrap().layout.pane_count();
+        let new_tile = ws.test_split(Direction::Vertical);
+        let after = ws.active_tab().unwrap().layout.pane_count();
+        assert_eq!(after, before + 1);
+        assert_ne!(new_tile, popup);
+        // Popup survives untouched and is still excluded from the tree.
+        let tab = ws.active_tab().unwrap();
+        assert!(tab.popup.is_some());
+        assert!(!tab.layout.pane_ids().contains(&popup));
+        ws.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn zoom_toggle_does_not_affect_popup() {
+        let mut ws = Workspace::test_new("popup");
+        ws.test_split(Direction::Horizontal);
+        let popup = ws.test_attach_popup();
+
+        ws.active_tab_mut().unwrap().zoomed = true;
+        assert!(ws.active_tab().unwrap().popup.is_some());
+        assert!(ws.active_tab().unwrap().popup_focused);
+        assert_eq!(ws.effective_focused_pane_id(), Some(popup));
+        ws.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn take_popup_clears_focus_and_returns_identity() {
+        let mut ws = Workspace::test_new("popup");
+        let root = ws.focused_pane_id().unwrap();
+        let popup = ws.test_attach_popup();
+
+        let taken = ws.active_tab_mut().unwrap().take_popup();
+        let (taken_pane, _terminal) = taken.expect("popup should be present");
+        assert_eq!(taken_pane, popup);
+        // Focus returns to the previously focused tile (it was never moved).
+        assert!(!ws.active_popup_focused());
+        assert_eq!(ws.effective_focused_pane_id(), Some(root));
+        assert!(ws.active_tab().unwrap().popup.is_none());
+        ws.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn adversarial_state_with_popup_keeps_invariants() {
+        let mut ws = Workspace::test_adversarial_identity_state();
+        ws.test_attach_popup();
         ws.assert_invariants_for_test();
     }
 }
