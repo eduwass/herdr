@@ -620,6 +620,16 @@ fn confirm_close_overlay_text(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
 ) -> (String, String) {
+    // Running-process pane close: tmux-style "kill pane running <cmd>?".
+    if let Some(pending) = &app.pending_close {
+        if let crate::app::state::PendingCloseKind::Pane = pending.kind {
+            let cmd = pending.running_command.as_deref().unwrap_or("process");
+            return (
+                format!("kill pane running {cmd}?"),
+                "This pane has a running process.".to_string(),
+            );
+        }
+    }
     let ws_name = app
         .workspaces
         .get(app.selected)
@@ -1154,5 +1164,20 @@ mod tests {
             worktree_overlay_caret("あい"),
             Position::new(input.x + 5, input.y)
         );
+    }
+
+    #[test]
+    fn confirm_close_text_shows_running_command_for_pane_kind() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![Workspace::test_new("main")];
+        app.selected = 0;
+        app.pending_close = Some(crate::app::state::PendingClose {
+            kind: crate::app::state::PendingCloseKind::Pane,
+            running_command: Some("claude".into()),
+        });
+
+        let (title, _detail) = confirm_close_overlay_text(&app);
+
+        assert_eq!(title, "kill pane running claude?");
     }
 }
