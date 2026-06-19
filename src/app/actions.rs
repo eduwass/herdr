@@ -3002,6 +3002,8 @@ impl AppState {
             AppEvent::WorktreeRemoveFinished(_) => Vec::new(),
             AppEvent::TabBarCommandFinished { .. } => Vec::new(),
             AppEvent::PluginCommandFinished { .. } => Vec::new(),
+            // Handled earlier in `handle_internal_event`; never reaches here.
+            AppEvent::AgentOscTitleChanged { .. } => Vec::new(),
         }
     }
 

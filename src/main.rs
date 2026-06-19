@@ -360,6 +360,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Set to "" to leave the outer terminal title alone.
 # window_title = "{hostname}: {workspace}"
 
+# Show the agent's live OSC/session title (the task line an agent emits) in the pane
+# border. Takes precedence over the detected agent name, but a manual pane rename
+# always wins.
+# pane_border_shows_osc_title = false
+
 # Agent panel ordering: "spaces" (grouped by space) or "priority" (attention queue).
 # "workspaces" is accepted as an alias for "spaces".
 # agent_panel_sort = "spaces"

@@ -138,6 +138,10 @@ pub struct TerminalState {
     pub agent_name: Option<String>,
     agent_name_owner: Option<AgentNameOwner>,
     managed_agent: Option<ManagedAgent>,
+    /// The agent's most recently observed OSC/session title, projected from the
+    /// runtime detector. Used only for the pane border label when the
+    /// `pane_border_shows_osc_title` flag is on; never overrides a manual rename.
+    pub agent_osc_title: Option<String>,
     hook_report_sequences: HashMap<String, u64>,
     suppressed_full_lifecycle_hook_reports: HashMap<String, SuppressedFullLifecycleHookReport>,
     stale_full_lifecycle_hook_sessions: HashMap<String, Vec<StaleFullLifecycleHookSession>>,
@@ -173,6 +177,7 @@ impl TerminalState {
             agent_name: None,
             agent_name_owner: None,
             managed_agent: None,
+            agent_osc_title: None,
             hook_report_sequences: HashMap::new(),
             suppressed_full_lifecycle_hook_reports: HashMap::new(),
             stale_full_lifecycle_hook_sessions: HashMap::new(),
@@ -2115,16 +2120,31 @@ impl TerminalState {
         }
     }
 
-    pub fn border_label(&self, show_agent_labels: bool) -> Option<String> {
+    pub fn border_label(&self, show_agent_labels: bool, show_osc_title: bool) -> Option<String> {
         self.effective_title().or_else(|| {
-            self.manual_label.clone().or_else(|| {
-                show_agent_labels
-                    .then(|| {
-                        self.effective_display_agent()
-                            .or_else(|| self.effective_agent_label().map(str::to_string))
-                    })
-                    .flatten()
-            })
+            // Precedence: manual rename > OSC title (only when flag on) > detected agent name.
+            // A manual rename always wins; the OSC title never overrides it.
+            self.manual_label
+                .clone()
+                .or_else(|| {
+                    show_osc_title
+                        .then(|| {
+                            self.agent_osc_title
+                                .as_deref()
+                                .map(str::trim)
+                                .filter(|title| !title.is_empty())
+                                .map(str::to_string)
+                        })
+                        .flatten()
+                })
+                .or_else(|| {
+                    show_agent_labels
+                        .then(|| {
+                            self.effective_display_agent()
+                                .or_else(|| self.effective_agent_label().map(str::to_string))
+                        })
+                        .flatten()
+                })
         })
     }
 
@@ -3916,19 +3936,65 @@ mod tests {
         let mut terminal = test_terminal();
         terminal.set_detected_state(Some(Agent::Claude), AgentState::Idle);
 
-        assert_eq!(terminal.border_label(false), None);
-        assert_eq!(terminal.border_label(true).as_deref(), Some("claude"));
+        assert_eq!(terminal.border_label(false, false), None);
+        assert_eq!(
+            terminal.border_label(true, false).as_deref(),
+            Some("claude")
+        );
 
         terminal.set_manual_label(" reviewer ".into());
-        assert_eq!(terminal.border_label(false).as_deref(), Some("reviewer"));
-        assert_eq!(terminal.border_label(true).as_deref(), Some("reviewer"));
+        assert_eq!(
+            terminal.border_label(false, false).as_deref(),
+            Some("reviewer")
+        );
+        assert_eq!(
+            terminal.border_label(true, false).as_deref(),
+            Some("reviewer")
+        );
 
         terminal.set_manual_label("   ".into());
-        assert_eq!(terminal.border_label(true).as_deref(), Some("claude"));
+        assert_eq!(
+            terminal.border_label(true, false).as_deref(),
+            Some("claude")
+        );
 
         terminal.set_manual_label("reviewer".into());
         terminal.clear_manual_label();
-        assert_eq!(terminal.border_label(true).as_deref(), Some("claude"));
+        assert_eq!(
+            terminal.border_label(true, false).as_deref(),
+            Some("claude")
+        );
+    }
+
+    #[test]
+    fn border_label_osc_title_respects_manual_rename_precedence() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Claude), AgentState::Idle);
+        terminal.agent_osc_title = Some("Friendly greeting".into());
+
+        // Manual rename set + OSC title present + flag ON -> manual rename wins.
+        terminal.set_manual_label("reviewer".into());
+        assert_eq!(
+            terminal.border_label(true, true).as_deref(),
+            Some("reviewer")
+        );
+
+        // No manual rename + OSC title present + flag ON -> OSC title shows.
+        terminal.clear_manual_label();
+        assert_eq!(
+            terminal.border_label(true, true).as_deref(),
+            Some("Friendly greeting")
+        );
+
+        // OSC title present + flag OFF -> falls back to the agent name, not the OSC title.
+        assert_eq!(
+            terminal.border_label(true, false).as_deref(),
+            Some("claude")
+        );
+
+        // No manual rename, no OSC title, flag ON -> falls back to the agent name.
+        terminal.agent_osc_title = None;
+        assert_eq!(terminal.border_label(true, true).as_deref(), Some("claude"));
     }
 
     #[test]

@@ -901,6 +901,9 @@ pub struct UiConfig {
     /// Format for the outer terminal window title. Empty leaves the title alone.
     /// Default: "{hostname}: {workspace}".
     pub window_title: String,
+    /// Show the agent's live OSC/session title in the pane border label when set,
+    /// taking precedence over the detected agent name but never over a manual rename. Default: false.
+    pub pane_border_shows_osc_title: bool,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
     /// Retired setting that Herdr wrote before the workspace filter was removed.
@@ -1130,6 +1133,7 @@ impl Default for UiConfig {
             tab_bar_right: Vec::new(),
             tab_bar_right_separator: " ".into(),
             window_title: super::window_title::default_window_title(),
+            pane_border_shows_osc_title: false,
             agent_panel_sort: AgentPanelSortConfig::Spaces,
             _legacy_agent_panel_scope: None,
             status_indicators: StatusIndicatorStyle::Dots,
@@ -1442,6 +1446,19 @@ tab_bar_right_separator = " · "
             TabBarRightEntryConfig::Hostname
         ));
         assert_eq!(config.ui.tab_bar_right_separator, " · ");
+    }
+
+    #[test]
+    fn pane_border_osc_title_default_off_and_parse() {
+        let default_config = Config::default();
+        assert!(!default_config.ui.pane_border_shows_osc_title);
+
+        let toml = r#"
+[ui]
+pane_border_shows_osc_title = true
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.ui.pane_border_shows_osc_title);
     }
 
     #[test]
