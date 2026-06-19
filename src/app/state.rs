@@ -1362,6 +1362,7 @@ pub struct AppState {
     pub confirm_close: bool,
     pub prompt_new_tab_name: bool,
     pub show_agent_labels_on_pane_borders: bool,
+    pub rounded_pane_borders: bool,
     pub pane_history_persistence: bool,
     /// Expose the focused pane's cursor anchor to the outer terminal even when
     /// the pane requested `?25l`. See `[experimental] reveal_hidden_cursor_for_cjk_ime`.
@@ -1448,6 +1449,10 @@ impl AppState {
 
     pub fn agent_border_labels_enabled(&self) -> bool {
         self.show_agent_labels_on_pane_borders
+    }
+
+    pub fn rounded_pane_borders_enabled(&self) -> bool {
+        self.rounded_pane_borders
     }
 
     pub fn pane_history_persistence_enabled(&self) -> bool {
@@ -1716,6 +1721,7 @@ impl AppState {
             confirm_close: true,
             prompt_new_tab_name: true,
             show_agent_labels_on_pane_borders: false,
+            rounded_pane_borders: false,
             pane_history_persistence: false,
             reveal_hidden_cursor_for_cjk_ime: false,
             cjk_ime_agent_filter_configured: false,

@@ -255,7 +255,16 @@ pub(super) fn render_panes(
     for info in &app.view.pane_infos {
         if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
             if multi_pane {
-                let (border_style, border_set) = if info.is_focused && terminal_active {
+                let (border_style, border_set) = if app.rounded_pane_borders_enabled() {
+                    (
+                        Style::default().fg(if info.is_focused {
+                            app.palette.accent
+                        } else {
+                            app.palette.overlay0
+                        }),
+                        ratatui::symbols::border::ROUNDED,
+                    )
+                } else if info.is_focused && terminal_active {
                     (
                         Style::default().fg(app.palette.accent),
                         ratatui::symbols::border::THICK,
