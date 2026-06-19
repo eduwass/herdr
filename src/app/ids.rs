@@ -30,11 +30,23 @@ impl App {
         pane_id: crate::layout::PaneId,
     ) -> Option<String> {
         let ws = self.state.workspaces.get(ws_idx)?;
-        let pane_number = ws.public_pane_number(pane_id)?;
-        Some(crate::workspace::public_pane_id_for_number(
-            &ws.id,
-            pane_number,
-        ))
+        if let Some(pane_number) = ws.public_pane_number(pane_id) {
+            return Some(crate::workspace::public_pane_id_for_number(
+                &ws.id,
+                pane_number,
+            ));
+        }
+        // Popups have no public pane number (they are deliberately outside the
+        // tiling tree and `public_pane_numbers`). Address them by raw id, which
+        // `parse_pane_id` resolves via its `p_` branch + popup-aware lookup.
+        if ws.tabs.iter().any(|tab| {
+            tab.popup
+                .as_ref()
+                .is_some_and(|popup| popup.pane_id == pane_id)
+        }) {
+            return Some(format!("p_{}_{}", ws_idx + 1, pane_id.raw()));
+        }
+        None
     }
 
     pub(super) fn pane_launch_env(

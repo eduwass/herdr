@@ -486,6 +486,38 @@ mod tests {
     use crate::layout::NavDirection;
     use crate::workspace::Workspace;
 
+    #[test]
+    fn popups_are_skipped_by_snapshot_capture() {
+        // Snapshot capture (used by both session restore and live-handoff) reads
+        // from the layout tree + pane map only, so an out-of-tree popup is never
+        // serialized — popups are deliberately ephemeral.
+        let mut ws = Workspace::test_new("popup");
+        ws.test_split(Direction::Horizontal);
+        let popup = ws.test_attach_popup();
+
+        let snapshot = capture(
+            std::slice::from_ref(&ws),
+            &HashMap::new(),
+            &TerminalRuntimeRegistry::new(),
+            Some(0),
+            0,
+            30,
+            0.5,
+            std::collections::HashSet::new(),
+        );
+
+        let tab_snapshot = &snapshot.workspaces[0].tabs[0];
+        assert!(
+            !tab_snapshot.panes.contains_key(&popup.raw()),
+            "popup pane must not be serialized into the snapshot"
+        );
+        // Only the tiled panes are captured.
+        assert_eq!(
+            tab_snapshot.panes.len(),
+            ws.active_tab().unwrap().panes.len()
+        );
+    }
+
     fn session_fixture(name: &str) -> &'static str {
         match name {
             "current-herdr" => {
