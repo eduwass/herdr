@@ -58,6 +58,11 @@ impl App {
         let resolved = crate::workspace::ResolvedPopupSpec::from_spec(
             &merged,
             self.state.palette.accent,
+            if self.state.rounded_pane_borders_enabled() {
+                crate::api::schema::PopupBorderStyle::Rounded
+            } else {
+                crate::api::schema::PopupBorderStyle::Single
+            },
             self.state.palette.panel_bg,
         );
 

@@ -82,14 +82,18 @@ impl ResolvedPopupSpec {
     ///
     /// `default_border_color` / `default_bg` come from the palette; `accent`-style
     /// colors parse via [`crate::config::theme::parse_color`].
-    pub fn from_spec(spec: &PopupSpec, default_border_color: Color, default_bg: Color) -> Self {
+    pub fn from_spec(
+        spec: &PopupSpec,
+        default_border_color: Color,
+        default_border_style: PopupBorderStyle,
+        default_bg: Color,
+    ) -> Self {
         let parse = crate::config::parse_color;
         ResolvedPopupSpec {
             width: dimension_to_size(spec.width, POPUP_DEFAULT_WIDTH_PCT),
             height: dimension_to_size(spec.height, POPUP_DEFAULT_HEIGHT_PCT),
             border: spec.border.unwrap_or(true),
-            // No `rounded_pane_borders` config exists on this branch; default to single.
-            border_style: spec.border_style.unwrap_or(PopupBorderStyle::Single),
+            border_style: spec.border_style.unwrap_or(default_border_style),
             border_color: spec
                 .border_color
                 .as_deref()
