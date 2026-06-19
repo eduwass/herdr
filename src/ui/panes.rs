@@ -389,6 +389,7 @@ fn render_pane_borders(app: &AppState, ws: &crate::workspace::Workspace, frame: 
     }
     add_split_border_cells(app, &mut cells);
 
+    let rounded = app.rounded_pane_borders_enabled();
     let buf = frame.buffer_mut();
     let area = buf.area;
     for ((x, y), line) in cells {
@@ -404,7 +405,7 @@ fn render_pane_borders(app: &AppState, ws: &crate::workspace::Workspace, frame: 
             .pane_infos
             .iter()
             .any(|info| info.is_focused && line_touches_pane(x, y, info, app.pane_gaps));
-        let symbol = line_cell_symbol(line);
+        let symbol = line_cell_symbol(line, rounded);
         if symbol.is_empty() {
             continue;
         }
@@ -593,7 +594,7 @@ fn render_pane_border_titles(app: &AppState, ws: &crate::workspace::Workspace, f
     }
 }
 
-fn line_cell_symbol(line: LineCell) -> &'static str {
+fn line_cell_symbol(line: LineCell, rounded: bool) -> &'static str {
     match (line.up, line.down, line.left, line.right) {
         (true, true, true, true) => "┼",
         (true, true, true, false) => "┤",
@@ -606,10 +607,34 @@ fn line_cell_symbol(line: LineCell) -> &'static str {
         (false, false, true, true) | (false, false, true, false) | (false, false, false, true) => {
             "─"
         }
-        (false, true, false, true) => "┌",
-        (false, true, true, false) => "┐",
-        (true, false, false, true) => "└",
-        (true, false, true, false) => "┘",
+        (false, true, false, true) => {
+            if rounded {
+                "╭"
+            } else {
+                "┌"
+            }
+        }
+        (false, true, true, false) => {
+            if rounded {
+                "╮"
+            } else {
+                "┐"
+            }
+        }
+        (true, false, false, true) => {
+            if rounded {
+                "╰"
+            } else {
+                "└"
+            }
+        }
+        (true, false, true, false) => {
+            if rounded {
+                "╯"
+            } else {
+                "┘"
+            }
+        }
         _ => "",
     }
 }
