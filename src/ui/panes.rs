@@ -1384,6 +1384,7 @@ mod tests {
                 ..Default::default()
             },
             app.palette.accent,
+            crate::api::schema::PopupBorderStyle::Single,
             app.palette.panel_bg,
         );
         let (new_pane, replaced) = workspace.tabs[0]
