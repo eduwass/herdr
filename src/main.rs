@@ -289,6 +289,10 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Ask for confirmation before closing a workspace
 # confirm_close = true
 
+# Ask for tmux-style confirmation before closing a pane that has a non-shell
+# process (a script or agent) running in it.
+# confirm_close_running = false
+
 # Ask for a tab name before creating a new tab.
 # Set false to create tabs immediately with generated names.
 # prompt_new_tab_name = true

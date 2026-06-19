@@ -798,6 +798,9 @@ pub struct UiConfig {
     pub mouse_scroll_lines: Option<NonZeroUsize>,
     /// Ask for confirmation before closing a workspace. Default: true.
     pub confirm_close: bool,
+    /// Ask for tmux-style confirmation before closing a pane that has a
+    /// non-shell process (a script or agent) running in it. Default: false.
+    pub confirm_close_running: bool,
     /// Ask for a tab name before creating a new tab. Default: true.
     pub prompt_new_tab_name: bool,
     /// Draw borders around split panes. Default: true.
@@ -999,6 +1002,7 @@ impl Default for UiConfig {
             redraw_on_focus_gained: true,
             mouse_scroll_lines: None,
             confirm_close: true,
+            confirm_close_running: false,
             prompt_new_tab_name: true,
             pane_borders: true,
             pane_gaps: true,

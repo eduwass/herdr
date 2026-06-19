@@ -1819,11 +1819,43 @@ impl AppState {
     pub(crate) fn confirm_implicit_worktree_group_close(&mut self, ws_idx: usize) -> bool {
         if self.confirm_close && self.workspace_close_would_close_worktree_group(ws_idx) {
             self.selected = ws_idx;
+            self.pending_close = Some(crate::app::state::PendingClose {
+                kind: crate::app::state::PendingCloseKind::Workspace,
+                running_command: None,
+            });
             self.mode = Mode::ConfirmClose;
             true
         } else {
             false
         }
+    }
+
+    /// Display name of the non-shell foreground command in the focused pane, if
+    /// any. Drives the opt-in tmux-style close confirmation.
+    fn focused_pane_foreground_command(&self) -> Option<String> {
+        let ws_idx = self.active?;
+        let ws = self.workspaces.get(ws_idx)?;
+        let pane_id = ws.focused_pane_id()?;
+        let terminal_id = self.terminal_id_for_pane(ws_idx, pane_id)?;
+        self.terminals.get(&terminal_id)?.foreground_command.clone()
+    }
+
+    /// Defer the focused-pane close to a tmux-style "kill pane running <cmd>?"
+    /// confirmation when `confirm_close_running` is enabled and the focused
+    /// pane has a non-shell process running. Returns true when deferred.
+    fn confirm_close_running_pane(&mut self) -> bool {
+        if !self.confirm_close_running {
+            return false;
+        }
+        let Some(command) = self.focused_pane_foreground_command() else {
+            return false;
+        };
+        self.pending_close = Some(crate::app::state::PendingClose {
+            kind: crate::app::state::PendingCloseKind::Pane,
+            running_command: Some(command),
+        });
+        self.mode = Mode::ConfirmClose;
+        true
     }
 
     #[cfg(test)]
@@ -1860,6 +1892,19 @@ impl AppState {
             }
         }
 
+        if self.confirm_close_running_pane() {
+            return true;
+        }
+
+        self.close_pane_immediate();
+        false
+    }
+
+    /// Close the focused pane without any confirmation checks. Used by
+    /// `close_pane` after confirmation gates pass, and by the confirmation
+    /// modal's accept handler for the running-process case.
+    pub(crate) fn close_pane_immediate(&mut self) {
+        let active = self.active;
         self.selection = None;
         self.selection_autoscroll = None;
         self.mark_session_dirty();
@@ -1888,7 +1933,6 @@ impl AppState {
         } else {
             self.remove_unattached_terminal_ids(terminal_ids);
         }
-        false
     }
 
     #[cfg(test)]
@@ -2596,6 +2640,15 @@ impl AppState {
                 })
                 .into_iter()
                 .collect(),
+            AppEvent::ForegroundCommandChanged { pane_id, command } => {
+                self.update_terminal_state(pane_id, |terminal| {
+                    terminal.foreground_command = command;
+                    // No effective-state change; this only updates the close-
+                    // confirmation signal, so no PaneStateUpdate is emitted.
+                    None
+                });
+                Vec::new()
+            }
             AppEvent::HookStateReported {
                 pane_id,
                 source,
@@ -5226,6 +5279,64 @@ mod tests {
         assert!(!state.pane_graphics_layers.contains_key(&closed));
         assert!(!state.pane_graphics_streams.contains_key(&closed));
         state.assert_invariants_for_test();
+    }
+
+    fn set_focused_pane_foreground_command(state: &mut AppState, command: &str) {
+        let pane_id = state.workspaces[0].focused_pane_id().unwrap();
+        let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .foreground_command = Some(command.into());
+    }
+
+    #[test]
+    fn close_pane_defers_to_confirm_when_running_process_and_flag_on() {
+        let mut state = app_with_workspaces(&["test"]);
+        state.workspaces[0].test_split(Direction::Horizontal);
+        state.ensure_test_terminals();
+        state.confirm_close_running = true;
+        set_focused_pane_foreground_command(&mut state, "claude");
+
+        let deferred = state.close_pane();
+
+        assert!(deferred);
+        assert_eq!(state.mode, Mode::ConfirmClose);
+        assert_eq!(state.workspaces[0].panes.len(), 2);
+        let pending = state.pending_close.as_ref().expect("pending close set");
+        assert_eq!(pending.kind, crate::app::state::PendingCloseKind::Pane);
+        assert_eq!(pending.running_command.as_deref(), Some("claude"));
+    }
+
+    #[test]
+    fn close_pane_closes_immediately_when_running_flag_off() {
+        let mut state = app_with_workspaces(&["test"]);
+        state.workspaces[0].test_split(Direction::Horizontal);
+        state.ensure_test_terminals();
+        state.confirm_close_running = false;
+        set_focused_pane_foreground_command(&mut state, "claude");
+
+        let deferred = state.close_pane();
+
+        assert!(!deferred);
+        assert_eq!(state.workspaces[0].panes.len(), 1);
+        assert!(state.pending_close.is_none());
+    }
+
+    #[test]
+    fn close_pane_closes_immediately_when_foreground_is_shell() {
+        let mut state = app_with_workspaces(&["test"]);
+        state.workspaces[0].test_split(Direction::Horizontal);
+        state.ensure_test_terminals();
+        state.confirm_close_running = true;
+        // No foreground_command set: pane is sitting at its own shell.
+
+        let deferred = state.close_pane();
+
+        assert!(!deferred);
+        assert_eq!(state.workspaces[0].panes.len(), 1);
+        assert!(state.pending_close.is_none());
     }
 
     #[test]

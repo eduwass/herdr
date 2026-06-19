@@ -642,7 +642,22 @@ pub(super) fn open_confirm_close(state: &mut AppState) {
 
 #[cfg(test)]
 pub(super) fn confirm_close_accept(state: &mut AppState) {
-    state.close_selected_workspace();
+    use crate::app::state::PendingCloseKind;
+    // Default to the worktree-group workspace close to preserve historical
+    // behavior when no descriptor was set (e.g. older entry paths).
+    let kind = state
+        .pending_close
+        .take()
+        .map(|pending| pending.kind)
+        .unwrap_or(PendingCloseKind::Workspace);
+    match kind {
+        PendingCloseKind::Pane => {
+            state.close_pane_immediate();
+        }
+        PendingCloseKind::Workspace => {
+            state.close_selected_workspace();
+        }
+    }
     if state.workspaces.is_empty() {
         state.mode = Mode::Navigate;
     } else {
@@ -651,6 +666,7 @@ pub(super) fn confirm_close_accept(state: &mut AppState) {
 }
 
 pub(super) fn confirm_close_cancel(state: &mut AppState) {
+    state.pending_close = None;
     state.mode = Mode::Navigate;
 }
 
@@ -1881,6 +1897,26 @@ mod tests {
         assert_eq!(state.request_remove_linked_worktree, None);
         assert_eq!(state.workspaces.len(), 1);
         assert_eq!(state.workspaces[0].display_name(), "main");
+        assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn confirm_close_accept_closes_pane_not_workspace_for_pane_kind() {
+        use ratatui::layout::Direction;
+        let mut state = state_with_workspaces(&["test"]);
+        state.workspaces[0].test_split(Direction::Horizontal);
+        state.ensure_test_terminals();
+        state.mode = Mode::ConfirmClose;
+        state.pending_close = Some(crate::app::state::PendingClose {
+            kind: crate::app::state::PendingCloseKind::Pane,
+            running_command: Some("claude".into()),
+        });
+
+        confirm_close_accept(&mut state);
+
+        assert_eq!(state.workspaces.len(), 1, "workspace must survive");
+        assert_eq!(state.workspaces[0].panes.len(), 1, "only the pane closes");
+        assert!(state.pending_close.is_none());
         assert_eq!(state.mode, Mode::Terminal);
     }
 

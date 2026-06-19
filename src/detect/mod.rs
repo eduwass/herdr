@@ -187,6 +187,25 @@ pub fn identify_agent_in_job(job: &crate::platform::ForegroundJob) -> Option<(Ag
     best.map(|(_, agent, name)| (agent, name))
 }
 
+/// Display command name for the foreground process group leader in a job,
+/// regardless of whether it is a recognized agent. Used for the tmux-style
+/// "kill pane running <cmd>?" confirmation. Returns the leader's basename so
+/// the prompt shows e.g. `python` rather than an absolute path.
+pub fn foreground_command_in_job(job: &crate::platform::ForegroundJob) -> Option<String> {
+    let process = job
+        .processes
+        .iter()
+        .find(|process| process.pid == job.process_group_id)
+        .or_else(|| job.processes.first())?;
+    let name = normalized_process_name(process);
+    let basename = path_basename(&name);
+    if basename.is_empty() {
+        None
+    } else {
+        Some(basename.to_string())
+    }
+}
+
 /// Detect the state of an agent from the live terminal tail snapshot.
 /// If `agent` is `None`, returns `Unknown`.
 #[cfg(test)]

@@ -813,6 +813,28 @@ pub enum Mode {
     Navigator,
 }
 
+}
+
+/// What a pending `Mode::ConfirmClose` should close when the user accepts.
+/// The modal is shared between the worktree-group close confirmation and the
+/// opt-in "kill pane running <cmd>?" confirmation, so the descriptor records
+/// both the target scope and (for the running-process case) the command name
+/// to render in the prompt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PendingCloseKind {
+    /// Close the focused pane (running-process confirmation).
+    Pane,
+    /// Close the selected workspace / worktree group.
+    Workspace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingClose {
+    pub kind: PendingCloseKind,
+    /// Foreground command name for the running-process prompt, if any.
+    pub running_command: Option<String>,
+}
+
 impl Mode {
     /// Whether keys in this mode are commands/navigation (an ASCII input source is wanted) rather
     /// than free text. This is an explicit **allowlist** of the prefix command/navigation realm:
@@ -1370,6 +1392,9 @@ pub struct AppState {
     pub(crate) previous_pane_focus: Option<PaneFocusTarget>,
     pub selected: usize,
     pub mode: Mode,
+    /// Set when a close is deferred to `Mode::ConfirmClose`; consumed on accept
+    /// to dispatch the correct close (pane / tab / workspace).
+    pub(crate) pending_close: Option<PendingClose>,
     pub should_quit: bool,
     /// In monolithic --no-session mode, detach exits the app because there is no server to detach from.
     pub detach_exits: bool,
@@ -1460,6 +1485,9 @@ pub struct AppState {
     pub redraw_on_focus_gained: bool,
     pub mouse_scroll_lines: usize,
     pub confirm_close: bool,
+    /// Opt-in tmux-style confirmation before closing a pane running a
+    /// non-shell process (a script or agent). Default: false.
+    pub confirm_close_running: bool,
     pub prompt_new_tab_name: bool,
     pub pane_borders: bool,
     pub pane_gaps: bool,
@@ -1743,6 +1771,7 @@ impl AppState {
             previous_pane_focus: None,
             selected: 0,
             mode: Mode::Navigate,
+            pending_close: None,
             should_quit: false,
             detach_exits: false,
             detach_requested: false,
@@ -1833,6 +1862,7 @@ impl AppState {
             redraw_on_focus_gained: true,
             mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
             confirm_close: true,
+            confirm_close_running: false,
             prompt_new_tab_name: true,
             pane_borders: true,
             pane_gaps: false,
