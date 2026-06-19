@@ -8,6 +8,7 @@
 - Added `[update].version_check` and `[update].manifest_check` so background Herdr version checks and remote agent-detection manifest checks can be disabled independently. Manual `herdr update` and bundled/local detection manifests still work when the background checks are disabled. (#677)
 - Added `HERDR_AGENT=<agent>` as a Linux foreground-process hint for agents hidden behind wrappers such as VMs, Bubblewrap, or `fence`, allowing Herdr to use the named agent's screen manifest when `/proc` cannot expose the real command. (#679)
 - Added `ui.pane_borders` and `ui.pane_gaps` to make split pane dividers and spacing configurable. (#271)
+- Added plugin popup panes with tmux-style ephemeral floating terminals, manifest and per-call sizing/style controls, responsive breakpoints for narrow clients, popup launch dimension environment variables, and automatic PTY resize as the host terminal changes size.
 
 ### Changed
 - Removed the Agents panel workspace/all filter. The panel now always shows all agents, defaults to grouped-by-space ordering, and can switch to priority ordering with `ui.agent_panel_sort = "priority"`. (#318)
@@ -16,8 +17,16 @@
 - Worktree operations started through the socket API and plugin/UI flows now defer long-running Git work until the app runtime can drive it, keeping clients responsive and preserving plugin lifecycle events for worktree-created panes. (#657, #662, #686)
 - OMP, OpenCode, Pi, Devin, and other official hook integrations now scope lifecycle and session reports to the intended root agent process more reliably, reducing stale or cross-process session adoption after restarts, nested commands, and new sessions. (#614, #712, #719, #765)
 
+||||||| parent of 963ee2a (docs(plugins): document popup pane behavior)
+=======
+### Added
+- Added plugin popup panes with tmux-style ephemeral floating terminals, manifest and per-call sizing/style controls, responsive breakpoints for narrow clients, popup launch dimension environment variables, and automatic PTY resize as the host terminal changes size.
+
+>>>>>>> 963ee2a (docs(plugins): document popup pane behavior)
 ### Fixed
 - Windows Terminal multiline text paste now reaches pane apps as one bracketed paste, so OMP, Pi, and similar prompts no longer submit each pasted line separately. Plain Esc, Shift+Enter, mouse, focus, resize, and Unicode paste handling are preserved on the Windows client path. (#670)
+- Focused plugin popup panes now own keyboard input until plain `Esc` closes them, so direct/global keybindings cannot mutate the tiled layout underneath an active popup.
+- Plugin popup pane sizing now uses the full tab terminal area instead of the focused tiled pane behind it, so percent dimensions stay stable across split layouts and responsive resizes.
 - Local Herdr clients no longer treat raw `Ctrl+V` as a clipboard-image paste trigger, so pane apps such as Vim and Neovim receive block-visual `Ctrl+V` even when the desktop clipboard contains an image. `herdr --remote` keeps `keys.remote_image_paste = "ctrl+v"` by default. (#647)
 - Herdr now refreshes cached host terminal colors when terminals report a light/dark color-scheme change, so pane apps that query OSC 10/11 no longer need detach/attach to see updated default colors. Opt-in `[theme].auto_switch` can also switch Herdr's own UI between configured `dark_name` and `light_name` themes. (#675)
 - Full-lifecycle hook agents can now recover when an old release/report sequence belongs to a previous agent generation. Herdr keeps process-exit validation active under lifecycle authority and re-anchors hook sequence guards after fresh session references or proven process exits. (#684)

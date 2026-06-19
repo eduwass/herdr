@@ -407,7 +407,9 @@ Herdr injects `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV=1`,
 `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, and `HERDR_PANE_ID` values. Action
 commands also receive `HERDR_PLUGIN_ACTION_ID`; event hooks receive
 `HERDR_PLUGIN_EVENT` and `HERDR_PLUGIN_EVENT_JSON`; pane commands receive
-`HERDR_PLUGIN_ENTRYPOINT_ID`.
+`HERDR_PLUGIN_ENTRYPOINT_ID`. Popup pane commands also receive
+`HERDR_POPUP=1`, `HERDR_POPUP_INITIAL_COLS`, `HERDR_POPUP_INITIAL_ROWS`,
+`HERDR_TERMINAL_INITIAL_COLS`, and `HERDR_TERMINAL_INITIAL_ROWS`.
 
 List recent action and event command logs:
 
@@ -426,17 +428,31 @@ Open a managed terminal UI:
 
 ```json
 {"id":"req_plugin_pane","method":"plugin.pane.open","params":{"plugin_id":"example.board","entrypoint":"board","placement":"zoomed","target_pane_id":"w1:p1","env":{"HERDR_ROLE":"board"},"focus":true}}
+{"id":"req_plugin_popup","method":"plugin.pane.open","params":{"plugin_id":"example.board","entrypoint":"board","placement":"popup","popup":{"width":"80%","height":"60%","border":true,"border_style":"rounded","border_color":"#89b4fa","padding":1,"bg":"#1e1e2e","title":"Board","breakpoints":[{"max_cols":100,"width":"100%","height":"90%","border":false,"padding":0}]}}}
 ```
 
 `plugin.pane.open` requires an installed, enabled, platform-compatible plugin,
 then launches the requested manifest `[[panes]]` entrypoint as an argv-backed
 terminal pane. Manifest pane `placement` defaults to `overlay`; request
-`placement` overrides the manifest with `overlay`, `split`, `tab`, or `zoomed`.
-Overlay panes target the active pane. Split and zoomed panes target an existing
-pane; tab panes can target a workspace. The pane
-behaves like a normal Herdr pane, but `plugin.pane.focus` and
+`placement` overrides the manifest with `overlay`, `split`, `tab`, `zoomed`, or
+`popup`. Overlay panes target the active pane. Split and zoomed panes target an
+existing pane; tab panes can target a workspace. Popup panes are centered over
+the active tab, live outside the tiled layout tree, and are dropped on restore
+and live-handoff.
+
+For popup placement, the optional `popup` object accepts `width`, `height`,
+`border`, `border_style`, `border_color`, `padding`, `bg`, `title`, and
+`breakpoints`. `width` and `height` accept either absolute cell counts or percent
+strings such as `"80%"`. Each breakpoint can set `max_cols`, `max_rows`, and the
+same popup override fields; matching breakpoints are applied in order and later
+matches win field-by-field. Popup dimensions and breakpoints are evaluated
+against the full tab terminal area, and Herdr resizes the popup PTY to the
+current inner content rect when the host terminal size changes.
+
+The pane behaves like a normal Herdr pane, but `plugin.pane.focus` and
 `plugin.pane.close` only operate on panes opened through the plugin API. Focus
-returns `plugin_pane_focused`; close returns `plugin_pane_closed`.
+returns `plugin_pane_focused`; close returns `plugin_pane_closed`. Focused popup
+panes capture keyboard input until plain `Esc` closes the popup.
 
 ## Socket transport
 
