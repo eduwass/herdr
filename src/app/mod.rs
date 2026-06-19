@@ -502,6 +502,7 @@ impl App {
             previous_pane_focus: None,
             selected,
             mode,
+            pending_close: None,
             should_quit: false,
             detach_exits: no_session,
             detach_requested: false,
@@ -597,6 +598,7 @@ impl App {
             redraw_on_focus_gained: config.ui.redraw_on_focus_gained,
             mouse_scroll_lines: config.ui.mouse_scroll_lines(),
             confirm_close: config.ui.confirm_close,
+            confirm_close_running: config.ui.confirm_close_running,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             pane_borders: config.ui.pane_borders,
             pane_gaps: config.ui.pane_gaps,
@@ -1329,6 +1331,7 @@ impl App {
                 self.state.right_click_passthrough_modifiers =
                     config.ui.right_click_passthrough_modifiers();
                 self.state.confirm_close = config.ui.confirm_close;
+                self.state.confirm_close_running = config.ui.confirm_close_running;
                 self.state.prompt_new_tab_name = config.ui.prompt_new_tab_name;
                 self.state.pane_borders = config.ui.pane_borders;
                 self.state.pane_gaps = config.ui.pane_gaps;
