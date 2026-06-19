@@ -14,7 +14,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::Color;
 
-use crate::api::schema::{PopupBorderStyle, PopupSpec};
+use crate::api::schema::{PopupBorderStyle, PopupBreakpointSpec, PopupSpec};
 use crate::layout::PaneId;
 use crate::pane::PaneState;
 
@@ -60,6 +60,33 @@ pub struct ResolvedPopupSpec {
     pub padding: u16,
     pub bg: Color,
     pub title: Option<String>,
+    pub breakpoints: Vec<ResolvedPopupBreakpoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedPopupBreakpoint {
+    pub max_cols: Option<u16>,
+    pub max_rows: Option<u16>,
+    pub width: Option<PopupSize>,
+    pub height: Option<PopupSize>,
+    pub border: Option<bool>,
+    pub border_style: Option<PopupBorderStyle>,
+    pub border_color: Option<Color>,
+    pub padding: Option<u16>,
+    pub bg: Option<Color>,
+    pub title: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectivePopupSpec {
+    pub width: PopupSize,
+    pub height: PopupSize,
+    pub border: bool,
+    pub border_style: PopupBorderStyle,
+    pub border_color: Color,
+    pub padding: u16,
+    pub bg: Color,
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +116,11 @@ impl ResolvedPopupSpec {
         default_bg: Color,
     ) -> Self {
         let parse = crate::config::parse_color;
+        let breakpoints = spec
+            .breakpoints
+            .iter()
+            .map(|breakpoint| resolve_breakpoint(breakpoint, parse))
+            .collect();
         ResolvedPopupSpec {
             width: dimension_to_size(spec.width, POPUP_DEFAULT_WIDTH_PCT),
             height: dimension_to_size(spec.height, POPUP_DEFAULT_HEIGHT_PCT),
@@ -102,11 +134,62 @@ impl ResolvedPopupSpec {
             padding: spec.padding.unwrap_or(0),
             bg: spec.bg.as_deref().map(parse).unwrap_or(default_bg),
             title: spec.title.clone(),
+            breakpoints,
         }
     }
 
-    /// Outer (bordered) rect for this popup centered within `area`, or `None`
-    /// if `area` is too small to host the minimum content size.
+    pub fn effective(&self, area: Rect) -> EffectivePopupSpec {
+        let mut effective = EffectivePopupSpec {
+            width: self.width,
+            height: self.height,
+            border: self.border,
+            border_style: self.border_style,
+            border_color: self.border_color,
+            padding: self.padding,
+            bg: self.bg,
+            title: self.title.clone(),
+        };
+        for breakpoint in &self.breakpoints {
+            if !breakpoint.matches(area) {
+                continue;
+            }
+            if let Some(width) = breakpoint.width {
+                effective.width = width;
+            }
+            if let Some(height) = breakpoint.height {
+                effective.height = height;
+            }
+            if let Some(border) = breakpoint.border {
+                effective.border = border;
+            }
+            if let Some(border_style) = breakpoint.border_style {
+                effective.border_style = border_style;
+            }
+            if let Some(border_color) = breakpoint.border_color {
+                effective.border_color = border_color;
+            }
+            if let Some(padding) = breakpoint.padding {
+                effective.padding = padding;
+            }
+            if let Some(bg) = breakpoint.bg {
+                effective.bg = bg;
+            }
+            if let Some(title) = &breakpoint.title {
+                effective.title = Some(title.clone());
+            }
+        }
+        effective
+    }
+
+    pub fn rects(&self, area: Rect) -> Option<(Rect, Rect, EffectivePopupSpec)> {
+        let effective = self.effective(area);
+        let outer = effective.outer_rect(area)?;
+        let inner = effective.inner_rect(outer);
+        Some((outer, inner, effective))
+    }
+}
+
+impl EffectivePopupSpec {
     pub fn outer_rect(&self, area: Rect) -> Option<Rect> {
         let frame = if self.border { 2 } else { 0 };
         let pad = self.padding.saturating_mul(2);
@@ -134,7 +217,6 @@ impl ResolvedPopupSpec {
         Some(Rect::new(x, y, outer_w, outer_h))
     }
 
-    /// Inner (content / PTY) rect inside `outer`, after border + padding.
     pub fn inner_rect(&self, outer: Rect) -> Rect {
         let frame = if self.border { 1 } else { 0 };
         let inset = frame + self.padding;
@@ -144,6 +226,35 @@ impl ResolvedPopupSpec {
             width: outer.width.saturating_sub(inset.saturating_mul(2)),
             height: outer.height.saturating_sub(inset.saturating_mul(2)),
         }
+    }
+}
+
+impl ResolvedPopupBreakpoint {
+    fn matches(&self, area: Rect) -> bool {
+        self.max_cols.is_none_or(|max| area.width <= max)
+            && self.max_rows.is_none_or(|max| area.height <= max)
+    }
+}
+
+fn resolve_breakpoint(
+    breakpoint: &PopupBreakpointSpec,
+    parse: fn(&str) -> Color,
+) -> ResolvedPopupBreakpoint {
+    ResolvedPopupBreakpoint {
+        max_cols: breakpoint.max_cols,
+        max_rows: breakpoint.max_rows,
+        width: breakpoint
+            .width
+            .map(|dim| dimension_to_size(Some(dim), 100)),
+        height: breakpoint
+            .height
+            .map(|dim| dimension_to_size(Some(dim), 100)),
+        border: breakpoint.border,
+        border_style: breakpoint.border_style,
+        border_color: breakpoint.border_color.as_deref().map(parse),
+        padding: breakpoint.padding,
+        bg: breakpoint.bg.as_deref().map(parse),
+        title: breakpoint.title.clone(),
     }
 }
 
@@ -172,6 +283,7 @@ mod tests {
             padding: 0,
             bg: Color::Reset,
             title: None,
+            breakpoints: Vec::new(),
         }
     }
 
@@ -179,14 +291,13 @@ mod tests {
     fn centered_rect_is_centered_and_sized() {
         let s = spec();
         let area = Rect::new(0, 0, 100, 40);
-        let outer = s.outer_rect(area).unwrap();
+        let (outer, inner, _) = s.rects(area).unwrap();
         assert_eq!(outer.width, 50);
         assert_eq!(outer.height, 20);
         // centered
         assert_eq!(outer.x, 25);
         assert_eq!(outer.y, 10);
         // inner accounts for the border
-        let inner = s.inner_rect(outer);
         assert_eq!(inner.width, 48);
         assert_eq!(inner.height, 18);
     }
@@ -198,9 +309,8 @@ mod tests {
         s.width = PopupSize::Cells(40);
         s.height = PopupSize::Cells(20);
         let area = Rect::new(0, 0, 100, 40);
-        let outer = s.outer_rect(area).unwrap();
+        let (outer, inner, _) = s.rects(area).unwrap();
         assert_eq!(outer.width, 40);
-        let inner = s.inner_rect(outer);
         // border (1) + padding (2) on each side = 3 inset
         assert_eq!(inner.width, 40 - 6);
         assert_eq!(inner.height, 20 - 6);
@@ -212,7 +322,7 @@ mod tests {
         s.width = PopupSize::Cells(1);
         s.height = PopupSize::Cells(1);
         let area = Rect::new(0, 0, 100, 40);
-        let outer = s.outer_rect(area).unwrap();
+        let (outer, _, _) = s.rects(area).unwrap();
         // min inner + border chrome
         assert_eq!(outer.width, POPUP_MIN_INNER_W + 2);
         assert_eq!(outer.height, POPUP_MIN_INNER_H + 2);
@@ -222,7 +332,7 @@ mod tests {
     fn returns_none_when_area_smaller_than_min() {
         let s = spec();
         let area = Rect::new(0, 0, 3, 3);
-        assert!(s.outer_rect(area).is_none());
+        assert!(s.rects(area).is_none());
     }
 
     #[test]
@@ -232,9 +342,43 @@ mod tests {
         s.width = PopupSize::Cells(40);
         s.height = PopupSize::Cells(20);
         let area = Rect::new(0, 0, 100, 40);
-        let outer = s.outer_rect(area).unwrap();
-        let inner = s.inner_rect(outer);
+        let (_, inner, _) = s.rects(area).unwrap();
         assert_eq!(inner.width, 40);
         assert_eq!(inner.height, 20);
+    }
+
+    #[test]
+    fn breakpoint_overrides_apply_when_area_matches() {
+        let s = ResolvedPopupSpec::from_spec(
+            &PopupSpec {
+                width: Some(crate::api::schema::PopupDimension::Percent(60)),
+                height: Some(crate::api::schema::PopupDimension::Percent(50)),
+                border: Some(true),
+                padding: Some(2),
+                breakpoints: vec![crate::api::schema::PopupBreakpointSpec {
+                    max_cols: Some(80),
+                    width: Some(crate::api::schema::PopupDimension::Percent(100)),
+                    height: Some(crate::api::schema::PopupDimension::Percent(90)),
+                    border: Some(false),
+                    padding: Some(0),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+            Color::Yellow,
+            Color::Black,
+        );
+
+        let (_, inner, effective) = s.rects(Rect::new(0, 0, 80, 40)).unwrap();
+        assert_eq!(inner.width, 80);
+        assert_eq!(inner.height, 36);
+        assert!(!effective.border);
+        assert_eq!(effective.padding, 0);
+
+        let (_, inner, effective) = s.rects(Rect::new(0, 0, 100, 40)).unwrap();
+        assert_eq!(inner.width, 54); // 60 columns minus border + padding chrome
+        assert_eq!(inner.height, 14); // 20 rows minus border + padding chrome
+        assert!(effective.border);
+        assert_eq!(effective.padding, 2);
     }
 }

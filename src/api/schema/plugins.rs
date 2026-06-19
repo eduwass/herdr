@@ -265,6 +265,7 @@ mod tests {
             padding: Some(2),
             bg: Some("black".to_string()),
             title: Some("Board".to_string()),
+            breakpoints: Vec::new(),
         };
         let json = serde_json::to_string(&spec).unwrap();
         let back: PopupSpec = serde_json::from_str(&json).unwrap();
@@ -282,6 +283,7 @@ mod tests {
             padding: Some(1),
             bg: Some("black".to_string()),
             title: Some("Manifest".to_string()),
+            breakpoints: Vec::new(),
         };
         // Per-call sets only some fields; the rest fall back to the manifest.
         let per_call = PopupSpec {
@@ -436,6 +438,8 @@ pub struct PopupSpec {
     pub bg: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub breakpoints: Vec<PopupBreakpointSpec>,
 }
 
 impl PopupSpec {
@@ -454,8 +458,40 @@ impl PopupSpec {
             padding: override_.padding.or(self.padding),
             bg: override_.bg.clone().or_else(|| self.bg.clone()),
             title: override_.title.clone().or_else(|| self.title.clone()),
+            breakpoints: if override_.breakpoints.is_empty() {
+                self.breakpoints.clone()
+            } else {
+                override_.breakpoints.clone()
+            },
         }
     }
+}
+
+/// Area-aware popup overrides. `max_cols` / `max_rows` refer to the host tab
+/// area in terminal cells. A breakpoint matches when every provided limit
+/// matches; later matching breakpoints override earlier ones field-by-field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PopupBreakpointSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_cols: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_rows: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<PopupDimension>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<PopupDimension>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border_style: Option<PopupBorderStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bg: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
