@@ -428,7 +428,7 @@ Open a managed terminal UI:
 
 ```json
 {"id":"req_plugin_pane","method":"plugin.pane.open","params":{"plugin_id":"example.board","entrypoint":"board","placement":"zoomed","target_pane_id":"w1:p1","env":{"HERDR_ROLE":"board"},"focus":true}}
-{"id":"req_plugin_popup","method":"plugin.pane.open","params":{"plugin_id":"example.board","entrypoint":"board","placement":"popup","popup":{"width":"80%","height":"60%","border":true,"border_style":"rounded","border_color":"#89b4fa","padding":1,"bg":"#1e1e2e","title":"Board","breakpoints":[{"max_cols":100,"width":"100%","height":"90%","border":false,"padding":0}]}}}
+{"id":"req_plugin_popup","method":"plugin.pane.open","params":{"plugin_id":"example.board","entrypoint":"board","placement":"popup","popup":{"width":"80%","height":"60%","position":"total_center","border":true,"border_style":"rounded","border_color":"#89b4fa","padding":1,"bg":"#1e1e2e","title":"Board","breakpoints":[{"max_cols":100,"width":"100%","height":"90%","position":"relative_center","border":false,"padding":0}]}}}
 ```
 
 `plugin.pane.open` requires an installed, enabled, platform-compatible plugin,
@@ -441,12 +441,15 @@ the active tab, live outside the tiled layout tree, and are dropped on restore
 and live-handoff.
 
 For popup placement, the optional `popup` object accepts `width`, `height`,
-`border`, `border_style`, `border_color`, `padding`, `bg`, `title`, and
+`position`, `border`, `border_style`, `border_color`, `padding`, `bg`, `title`, and
 `breakpoints`. `width` and `height` accept either absolute cell counts or percent
-strings such as `"80%"`. Each breakpoint can set `max_cols`, `max_rows`, and the
+strings such as `"80%"`. `position` defaults to `total_center`, which centers
+against the whole terminal frame regardless of sidebar or tab layout; use
+`relative_center` to center against the pane/content area behind the popup. Each
+breakpoint can set `max_cols`, `max_rows`, and the
 same popup override fields; matching breakpoints are applied in order and later
 matches win field-by-field. Popup dimensions and breakpoints are evaluated
-against the full tab terminal area, and Herdr resizes the popup PTY to the
+against the selected positioning area, and Herdr resizes the popup PTY to the
 current inner content rect when the host terminal size changes.
 
 The pane behaves like a normal Herdr pane, but `plugin.pane.focus` and

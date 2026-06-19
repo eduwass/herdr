@@ -259,6 +259,7 @@ mod tests {
         let spec = PopupSpec {
             width: Some(PopupDimension::Percent(70)),
             height: Some(PopupDimension::Cells(20)),
+            position: Some(PopupPosition::RelativeCenter),
             border: Some(true),
             border_style: Some(PopupBorderStyle::Double),
             border_color: Some("#ff0000".to_string()),
@@ -277,6 +278,7 @@ mod tests {
         let manifest = PopupSpec {
             width: Some(PopupDimension::Percent(50)),
             height: Some(PopupDimension::Percent(50)),
+            position: Some(PopupPosition::RelativeCenter),
             border: Some(true),
             border_style: Some(PopupBorderStyle::Single),
             border_color: Some("blue".to_string()),
@@ -299,6 +301,7 @@ mod tests {
         assert_eq!(merged.title.as_deref(), Some("Call"));
         // Inherited from manifest.
         assert_eq!(merged.height, Some(PopupDimension::Percent(50)));
+        assert_eq!(merged.position, Some(PopupPosition::RelativeCenter));
         assert_eq!(merged.border_style, Some(PopupBorderStyle::Single));
         assert_eq!(merged.border_color.as_deref(), Some("blue"));
         assert_eq!(merged.padding, Some(1));
@@ -418,6 +421,16 @@ pub enum PopupBorderStyle {
     Thick,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PopupPosition {
+    /// Center against the entire terminal frame, ignoring sidebar/tab layout.
+    #[default]
+    TotalCenter,
+    /// Center against the pane/content area behind the popup.
+    RelativeCenter,
+}
+
 /// Styling and sizing for a popup pane. All fields optional and additive so
 /// callers (manifest or per-call) only specify what they want to override.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -426,6 +439,8 @@ pub struct PopupSpec {
     pub width: Option<PopupDimension>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<PopupDimension>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<PopupPosition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub border: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -449,6 +464,7 @@ impl PopupSpec {
         PopupSpec {
             width: override_.width.or(self.width),
             height: override_.height.or(self.height),
+            position: override_.position.or(self.position),
             border: override_.border.or(self.border),
             border_style: override_.border_style.or(self.border_style),
             border_color: override_
@@ -480,6 +496,8 @@ pub struct PopupBreakpointSpec {
     pub width: Option<PopupDimension>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub height: Option<PopupDimension>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<PopupPosition>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub border: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

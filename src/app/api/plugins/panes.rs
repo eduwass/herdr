@@ -15,7 +15,7 @@ fn popup_launch_size(
     Some((inner.height, inner.width))
 }
 
-fn popup_launch_area(
+fn non_empty_popup_area(
     area: ratatui::layout::Rect,
     fallback_rows_cols: (u16, u16),
 ) -> ratatui::layout::Rect {
@@ -24,6 +24,24 @@ fn popup_launch_area(
     } else {
         let (rows, cols) = fallback_rows_cols;
         ratatui::layout::Rect::new(0, 0, cols, rows)
+    }
+}
+
+fn popup_launch_area(
+    popup_area: ratatui::layout::Rect,
+    relative_area: ratatui::layout::Rect,
+    fallback_rows_cols: (u16, u16),
+    spec: &crate::workspace::ResolvedPopupSpec,
+) -> ratatui::layout::Rect {
+    let popup_area = non_empty_popup_area(popup_area, fallback_rows_cols);
+    let relative_area = if relative_area.width > 0 && relative_area.height > 0 {
+        relative_area
+    } else {
+        popup_area
+    };
+    match spec.effective(popup_area).position {
+        crate::api::schema::PopupPosition::TotalCenter => popup_area,
+        crate::api::schema::PopupPosition::RelativeCenter => relative_area,
     }
 }
 
@@ -94,7 +112,12 @@ impl App {
         };
         let public_pane_id = format!("p_{}_{}", ws_idx + 1, pane_id.raw());
         let fallback_rows_cols = self.state.estimate_pane_size();
-        let launch_area = popup_launch_area(self.state.view.terminal_area, fallback_rows_cols);
+        let launch_area = popup_launch_area(
+            self.state.view.popup_area,
+            self.state.view.terminal_area,
+            fallback_rows_cols,
+            &resolved,
+        );
         let (rows, cols) = popup_launch_size(launch_area, &resolved).unwrap_or(fallback_rows_cols);
         extra_env.extend([
             ("HERDR_POPUP".to_string(), "1".to_string()),
