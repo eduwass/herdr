@@ -878,6 +878,7 @@ mod tests {
                 crate::workspace::ResolvedPopupSpec::from_spec(
                     &crate::api::schema::PopupSpec::default(),
                     app.state.palette.accent,
+                    crate::api::schema::PopupBorderStyle::Single,
                     app.state.palette.panel_bg,
                 ),
             )

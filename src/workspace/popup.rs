@@ -366,6 +366,7 @@ mod tests {
                 ..Default::default()
             },
             Color::Yellow,
+            PopupBorderStyle::Single,
             Color::Black,
         );
 
