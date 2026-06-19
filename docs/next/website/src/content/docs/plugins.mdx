@@ -292,6 +292,7 @@ command = ["herdr-board"]
 [panes.popup]
 width = "80%"      # percent of the terminal width, or an absolute cell count (e.g. 60)
 height = 24         # string "50%" or integer cell count
+position = "total_center"  # total_center | relative_center (default: total_center)
 border = true       # draw a border (default: true)
 border_style = "rounded"  # single | double | rounded | thick (default: single)
 border_color = "#89b4fa"  # hex, named, or rgb(r,g,b); defaults to the theme accent
@@ -300,10 +301,11 @@ bg = "#1e1e2e"     # popup background color; defaults to the theme panel backgro
 title = "Board"     # optional border title
 
 [[panes.popup.breakpoints]]
-max_cols = 100       # applies when the host tab area is <= 100 columns
-max_rows = 40        # optional; applies when the host tab area is <= 40 rows
+max_cols = 100       # applies when the selected positioning area is <= 100 columns
+max_rows = 40        # optional; selected positioning area <= 40 rows
 width = "100%"
 height = "90%"
+position = "relative_center"
 border = false
 border_style = "single"
 border_color = "#cba6f7"
@@ -315,17 +317,21 @@ title = "Board"
 All `[panes.popup]` fields are optional. Dimensions accept either a percentage
 string (`"80%"`, clamped to the terminal axis) or an absolute cell count
 (`60`); they are clamped to a minimum content size and re-centered for the
-current terminal size. Percent dimensions and breakpoints are evaluated against
-the full tab terminal area, not the tiled pane behind the popup.
+current terminal size. By default, popup positioning is `total_center`: the
+popup is centered against the whole terminal frame, ignoring the sidebar, tab
+bar, and any tiled pane geometry. Set `position = "relative_center"` to preserve
+the old content-area behavior, where the popup is centered against the pane area
+behind it. Percent dimensions and breakpoints are evaluated against the selected
+positioning area.
 
 Breakpoints are optional `[[panes.popup.breakpoints]]` tables. `max_cols` and
-`max_rows` are terminal-cell limits for the host tab area; a breakpoint matches
-when every provided limit matches. Matching breakpoints override popup fields
+`max_rows` are terminal-cell limits for the selected positioning area; a
+breakpoint matches when every provided limit matches. Matching breakpoints override popup fields
 field-by-field in manifest order, so later matching rules win. This gives plugin
 authors a simple media-query-style escape hatch for narrow windows and mobile
 clients.
 
-A breakpoint can set `width`, `height`, `border`, `border_style`,
+A breakpoint can set `width`, `height`, `position`, `border`, `border_style`,
 `border_color`, `padding`, `bg`, and `title`; omitted fields keep the current
 effective value. Breakpoint `width` and `height` accept the same percentage or
 absolute-cell forms as `[panes.popup]`.

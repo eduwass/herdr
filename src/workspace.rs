@@ -1337,6 +1337,7 @@ impl Workspace {
         let spec = popup::ResolvedPopupSpec {
             width: popup::PopupSize::Percent(60),
             height: popup::PopupSize::Percent(60),
+            position: crate::api::schema::PopupPosition::TotalCenter,
             border: true,
             border_style: crate::api::schema::PopupBorderStyle::Single,
             border_color: ratatui::style::Color::Reset,

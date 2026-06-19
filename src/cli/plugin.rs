@@ -590,6 +590,17 @@ fn plugin_pane_open(args: &[String]) -> std::io::Result<i32> {
                 popup.height = Some(dim);
                 popup_set = true;
             }
+            "--position" => {
+                let Some(value) = required_value(args, &mut index, "--position") else {
+                    return Ok(2);
+                };
+                let Some(position) = parse_popup_position(&value) else {
+                    eprintln!("invalid --position: expected total_center|relative_center");
+                    return Ok(2);
+                };
+                popup.position = Some(position);
+                popup_set = true;
+            }
             "--border" => {
                 popup.border = Some(true);
                 popup_set = true;
@@ -691,6 +702,14 @@ fn parse_popup_border_style(value: &str) -> Option<crate::api::schema::PopupBord
         "double" => Some(crate::api::schema::PopupBorderStyle::Double),
         "rounded" => Some(crate::api::schema::PopupBorderStyle::Rounded),
         "thick" => Some(crate::api::schema::PopupBorderStyle::Thick),
+        _ => None,
+    }
+}
+
+fn parse_popup_position(value: &str) -> Option<crate::api::schema::PopupPosition> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "total_center" => Some(crate::api::schema::PopupPosition::TotalCenter),
+        "relative_center" => Some(crate::api::schema::PopupPosition::RelativeCenter),
         _ => None,
     }
 }
@@ -1706,7 +1725,7 @@ fn print_plugin_action_help() {
 fn print_plugin_pane_help() {
     eprintln!("herdr plugin pane commands:");
     eprintln!("  herdr plugin pane open --plugin ID --entrypoint ID [--placement overlay|split|tab|zoomed|popup] [--workspace ID] [--target-pane PANE] [--direction right|down] [--cwd PATH] [--env KEY=VALUE] [--focus|--no-focus]");
-    eprintln!("    popup styling: [--width NN|NN%] [--height NN|NN%] [--border|--no-border] [--border-style single|double|rounded|thick] [--border-color COLOR] [--padding N] [--bg COLOR] [--title TEXT]");
+    eprintln!("    popup styling: [--width NN|NN%] [--height NN|NN%] [--position total_center|relative_center] [--border|--no-border] [--border-style single|double|rounded|thick] [--border-color COLOR] [--padding N] [--bg COLOR] [--title TEXT]");
     eprintln!("  herdr plugin pane focus <pane_id>");
     eprintln!("  herdr plugin pane close <pane_id>");
 }
