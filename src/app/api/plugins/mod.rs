@@ -380,6 +380,18 @@ impl App {
                     );
                 }
             }
+            PluginPanePlacement::Popup => {
+                if params.workspace_id.is_some()
+                    || params.target_pane_id.is_some()
+                    || params.direction.is_some()
+                {
+                    return encode_error(
+                        id,
+                        "invalid_params",
+                        "popup plugin panes float over the active tab",
+                    );
+                }
+            }
         }
 
         match placement {
@@ -390,6 +402,7 @@ impl App {
                 self.open_plugin_split_pane(id, params, &plugin, pane, placement)
             }
             PluginPanePlacement::Tab => self.open_plugin_tab(id, params, &plugin, pane),
+            PluginPanePlacement::Popup => self.open_plugin_popup_pane(id, params, &plugin, pane),
         }
     }
 
@@ -1145,6 +1158,7 @@ command = ["echo", "b"]
                 cwd: None,
                 focus: false,
                 env: std::collections::HashMap::new(),
+                popup: None,
             }),
         });
         let value: serde_json::Value = serde_json::from_str(&response).unwrap();
@@ -1215,6 +1229,7 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$HERDR_
                         "/tmp/spoofed-herdr".to_string(),
                     ),
                 ]),
+                popup: None,
             }),
         });
         let ResponseResult::PluginPaneOpened { plugin_pane } = response_result(&open) else {
@@ -1254,6 +1269,123 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$HERDR_
             context.focused_pane_id.as_deref(),
             Some(target_public_pane_id.as_str())
         );
+
+        for (_, runtime) in app.terminal_runtimes.drain() {
+            runtime.shutdown();
+        }
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn plugin_popup_pane_floats_outside_layout_and_close_returns_focus() {
+        let mut app = test_app();
+        let mut workspace = crate::workspace::Workspace::test_new("popup-plugin");
+        workspace.custom_name = None;
+        let root_pane = workspace.tabs[0].root_pane;
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = crate::app::Mode::Terminal;
+
+        let root = unique_temp_path("plugin-popup-open");
+        let capture = root.join("capture.txt");
+        write_manifest_content(
+            &root,
+            &format!(
+                r#"
+id = "example.popup"
+name = "Popup Plugin"
+version = "0.1.0"
+min_herdr_version = "0.6.10"
+platforms = ["linux", "macos"]
+
+[[panes]]
+id = "board"
+title = "Popup Board"
+placement = "popup"
+command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$HERDR_WORKSPACE_ID\" \"$HERDR_TAB_ID\" \"$HERDR_PANE_ID\" > {}; sleep 60"]
+
+[panes.popup]
+width = "70%"
+height = 20
+border = true
+border_style = "double"
+"#,
+                capture.display()
+            ),
+        );
+        link_manifest(&mut app, &root);
+
+        let open = app.handle_api_request(Request {
+            id: "popup-open".into(),
+            method: Method::PluginPaneOpen(PluginPaneOpenParams {
+                plugin_id: "example.popup".into(),
+                entrypoint: "board".into(),
+                placement: None,
+                workspace_id: None,
+                target_pane_id: None,
+                direction: None,
+                cwd: None,
+                focus: true,
+                env: std::collections::HashMap::new(),
+                // Per-call override: a wider popup; manifest border_style stays.
+                popup: Some(crate::api::schema::PopupSpec {
+                    width: Some(crate::api::schema::PopupDimension::Percent(90)),
+                    ..Default::default()
+                }),
+            }),
+        });
+        let ResponseResult::PluginPaneOpened { plugin_pane } = response_result(&open) else {
+            panic!("expected plugin pane opened response: {open}");
+        };
+        let (_, popup_pane_id) = app
+            .parse_pane_id(&plugin_pane.pane.pane_id)
+            .expect("popup pane id should parse");
+        let popup_env = read_capture_when_ready(&capture, || {});
+        let mut popup_env = popup_env.lines();
+        assert_eq!(
+            popup_env.next(),
+            Some(plugin_pane.pane.workspace_id.as_str())
+        );
+        assert_eq!(popup_env.next(), Some(plugin_pane.pane.tab_id.as_str()));
+        assert_eq!(popup_env.next(), Some(plugin_pane.pane.pane_id.as_str()));
+
+        // Tracked as a plugin pane, focused as a popup, excluded from the tree.
+        assert!(app.state.plugin_panes.contains_key(&popup_pane_id));
+        let ws = &app.state.workspaces[0];
+        assert!(ws.active_popup_focused());
+        assert_eq!(ws.effective_focused_pane_id(), Some(popup_pane_id));
+        assert_eq!(ws.focused_pane_id(), Some(root_pane));
+        let tab = ws.active_tab().unwrap();
+        assert!(!tab.layout.pane_ids().contains(&popup_pane_id));
+        assert!(!tab.panes.contains_key(&popup_pane_id));
+        let popup_spec = &tab.popup.as_ref().unwrap().spec;
+        // Per-call width override applied; manifest border_style preserved.
+        assert_eq!(popup_spec.width, crate::workspace::PopupSize::Percent(90));
+        assert_eq!(
+            popup_spec.border_style,
+            crate::api::schema::PopupBorderStyle::Double
+        );
+        app.state.workspaces[0].assert_invariants_for_test();
+
+        // Closing via the API drops the popup and returns focus to the tile.
+        let close = app.handle_api_request(Request {
+            id: "popup-close".into(),
+            method: Method::PluginPaneClose(crate::api::schema::PluginPaneCloseParams {
+                pane_id: plugin_pane.pane.pane_id.clone(),
+            }),
+        });
+        let value: serde_json::Value = serde_json::from_str(&close).unwrap();
+        assert!(value.get("error").is_none(), "close failed: {close}");
+
+        let ws = &app.state.workspaces[0];
+        assert!(!ws.active_popup_focused());
+        assert!(ws.active_tab().unwrap().popup.is_none());
+        assert_eq!(ws.effective_focused_pane_id(), Some(root_pane));
+        assert!(!app.state.plugin_panes.contains_key(&popup_pane_id));
+        app.state.workspaces[0].assert_invariants_for_test();
 
         for (_, runtime) in app.terminal_runtimes.drain() {
             runtime.shutdown();
@@ -1317,6 +1449,7 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$HERDR_PLUGIN_ROOT\" \"$HERDR_PL
                         "/tmp/spoofed-state".to_string(),
                     ),
                 ]),
+                popup: None,
             }),
         });
         let ResponseResult::PluginPaneOpened { .. } = response_result(&open) else {
@@ -1405,6 +1538,7 @@ command = ["sh", "-c", "sleep 1"]
                 cwd: None,
                 focus: true,
                 env: std::collections::HashMap::new(),
+                popup: None,
             }),
         });
         let ResponseResult::PluginPaneOpened { .. } = response_result(&open) else {
@@ -1569,6 +1703,7 @@ command = ["sh", "-c", "sleep 1"]
                 cwd: None,
                 focus: true,
                 env: std::collections::HashMap::new(),
+                popup: None,
             }),
         });
         let value: serde_json::Value = serde_json::from_str(&pane).unwrap();

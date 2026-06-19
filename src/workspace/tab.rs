@@ -46,6 +46,13 @@ pub struct Tab {
     #[cfg(test)]
     pub runtimes: HashMap<PaneId, TerminalRuntime>,
     pub zoomed: bool,
+    /// Ephemeral floating popup pane, tracked OUTSIDE the layout tree. When
+    /// `Some`, it renders on top of the tiled layout and (while focused) receives
+    /// input. It is intentionally absent from `panes`/`layout`/snapshots.
+    pub popup: Option<super::popup::Popup>,
+    /// Whether the popup currently holds focus (input/cursor routing target).
+    /// Only meaningful when `popup.is_some()`.
+    pub popup_focused: bool,
     pub events: mpsc::Sender<AppEvent>,
     pub(crate) render_notify: Arc<Notify>,
     pub(crate) render_dirty: Arc<AtomicBool>,
@@ -176,6 +183,8 @@ impl Tab {
                 #[cfg(test)]
                 runtimes: HashMap::new(),
                 zoomed: false,
+                popup: None,
+                popup_focused: false,
                 events,
                 render_notify,
                 render_dirty,
@@ -416,6 +425,54 @@ impl Tab {
         })
     }
 
+    /// Spawn a command into a fresh floating popup attached to this tab, outside
+    /// the layout tree. Replaces any existing popup (closing it first; caller is
+    /// responsible for tearing down the previous terminal via the returned
+    /// `replaced` id). The popup is focused on success.
+    #[allow(clippy::too_many_arguments)]
+    pub fn spawn_popup_argv_command(
+        &mut self,
+        new_id: PaneId,
+        rows: u16,
+        cols: u16,
+        cwd: Option<PathBuf>,
+        argv: &[String],
+        launch_env: &PaneLaunchEnv,
+        scrollback_limit_bytes: usize,
+        host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        spec: super::popup::ResolvedPopupSpec,
+    ) -> std::io::Result<(NewPane, Option<(PaneId, TerminalId)>)> {
+        let replaced = self.take_popup();
+        let actual_cwd = cwd.unwrap_or_else(|| PathBuf::from("."));
+        let runtime = TerminalRuntime::spawn_argv_command(
+            new_id,
+            rows,
+            cols,
+            actual_cwd.clone(),
+            argv,
+            launch_env,
+            scrollback_limit_bytes,
+            host_terminal_theme,
+            self.events.clone(),
+            self.render_notify.clone(),
+            self.render_dirty.clone(),
+        )?;
+        let terminal_id = TerminalId::alloc();
+        let terminal =
+            TerminalState::new(terminal_id.clone(), actual_cwd).with_launch_argv(argv.to_vec());
+        let pane_state = PaneState::new(terminal_id);
+        self.popup = Some(super::popup::Popup::new(new_id, pane_state, spec));
+        self.popup_focused = true;
+        Ok((
+            NewPane {
+                pane_id: new_id,
+                terminal,
+                runtime,
+            },
+            replaced,
+        ))
+    }
+
     pub fn close_focused(&mut self) -> Option<DetachedPane> {
         let pane_id = self.layout.focused();
         self.detach_pane(pane_id)
@@ -449,6 +506,8 @@ impl Tab {
             #[cfg(test)]
             runtimes: HashMap::new(),
             zoomed: false,
+            popup: None,
+            popup_focused: false,
             events,
             render_notify,
             render_dirty,
@@ -535,9 +594,32 @@ impl Tab {
     }
 
     pub fn terminal_id(&self, pane_id: PaneId) -> Option<&TerminalId> {
+        if let Some(popup) = &self.popup {
+            if popup.pane_id == pane_id {
+                return Some(&popup.state.attached_terminal_id);
+            }
+        }
         self.panes
             .get(&pane_id)
             .map(|pane| &pane.attached_terminal_id)
+    }
+
+    /// Pane id that should receive input/cursor for this tab: the popup when it
+    /// holds focus, otherwise the layout's focused tile.
+    pub fn effective_focused_pane_id(&self) -> PaneId {
+        match (&self.popup, self.popup_focused) {
+            (Some(popup), true) => popup.pane_id,
+            _ => self.layout.focused(),
+        }
+    }
+
+    /// Drop the popup (if any) and report its pane id + terminal id so the caller
+    /// can tear down the runtime/terminal. Clears popup focus.
+    pub fn take_popup(&mut self) -> Option<(PaneId, TerminalId)> {
+        self.popup_focused = false;
+        self.popup
+            .take()
+            .map(|popup| (popup.pane_id, popup.state.attached_terminal_id))
     }
 
     pub fn cwd_for_pane(

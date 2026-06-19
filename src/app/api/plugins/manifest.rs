@@ -68,6 +68,8 @@ struct RawPluginManifestPane {
     platforms: Option<Vec<RawPlatform>>,
     #[serde(default)]
     placement: PluginPanePlacement,
+    #[serde(default)]
+    popup: Option<crate::api::schema::PopupSpec>,
     command: Vec<String>,
 }
 
@@ -398,6 +400,7 @@ fn normalize_manifest_pane(
         description,
         platforms,
         placement: pane.placement,
+        popup: pane.popup,
         command,
     })
 }

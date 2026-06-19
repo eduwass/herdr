@@ -2,7 +2,7 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph},
     Frame,
 };
 
@@ -313,7 +313,9 @@ pub(super) fn render_panes(
     };
 
     let multi_pane = ws.layout.pane_count() > 1;
-    let terminal_active = app.mode == Mode::Terminal;
+    // A focused popup owns the cursor; suppress the tiled pane cursor meanwhile.
+    let popup_has_focus = ws.active_popup_focused();
+    let terminal_active = app.mode == Mode::Terminal && !popup_has_focus;
 
     for info in &app.view.pane_infos {
         if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
@@ -350,6 +352,8 @@ pub(super) fn render_panes(
     }
 
     render_pane_borders(app, ws, frame);
+
+    render_popup(app, terminal_runtimes, frame, area, ws_idx, ws);
 }
 
 #[derive(Clone, Copy, Default)]
@@ -626,6 +630,65 @@ fn line_cell_symbol(line: LineCell, rounded: bool) -> &'static str {
             }
         }
         _ => "",
+    }
+}
+
+fn render_popup(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+    ws_idx: usize,
+    ws: &crate::workspace::Workspace,
+) {
+    let Some(tab) = ws.active_tab() else {
+        return;
+    };
+    let Some(popup) = &tab.popup else {
+        return;
+    };
+    let spec = &popup.spec;
+    let Some(outer) = spec.outer_rect(area) else {
+        return;
+    };
+    let inner = spec.inner_rect(outer);
+
+    // Clear the region (and the border/padding band) so tiled content doesn't
+    // bleed through, then paint the popup background.
+    frame.render_widget(Clear, outer);
+    if spec.bg != ratatui::style::Color::Reset {
+        frame.render_widget(Block::default().style(Style::default().bg(spec.bg)), outer);
+    }
+
+    if spec.border {
+        let border_set = match spec.border_style {
+            crate::api::schema::PopupBorderStyle::Single => ratatui::symbols::border::PLAIN,
+            crate::api::schema::PopupBorderStyle::Double => ratatui::symbols::border::DOUBLE,
+            crate::api::schema::PopupBorderStyle::Rounded => ratatui::symbols::border::ROUNDED,
+            crate::api::schema::PopupBorderStyle::Thick => ratatui::symbols::border::THICK,
+        };
+        let mut block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(spec.border_color))
+            .border_set(border_set)
+            .style(Style::default().bg(spec.bg));
+        if let Some(title) = spec
+            .title
+            .as_deref()
+            .and_then(|label| pane_border_title(label, outer.width, false))
+        {
+            block = block.title(Line::from(Span::styled(
+                title,
+                Style::default().fg(spec.border_color),
+            )));
+        }
+        frame.render_widget(block, outer);
+    }
+
+    if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, popup.pane_id) {
+        let show_cursor =
+            tab.popup_focused && app.mode == Mode::Terminal && !pane_is_scrolled_back(rt);
+        rt.render(frame, inner, show_cursor);
     }
 }
 

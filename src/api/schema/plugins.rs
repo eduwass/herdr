@@ -219,6 +219,89 @@ mod tests {
             plugin_managed_path_component("example/a")
         );
     }
+
+    #[test]
+    fn popup_dimension_parses_percent_absolute_and_serializes_to_string() {
+        let pct: PopupDimension = serde_json::from_str("\"80%\"").unwrap();
+        assert_eq!(pct, PopupDimension::Percent(80));
+        let cells_str: PopupDimension = serde_json::from_str("\"60\"").unwrap();
+        assert_eq!(cells_str, PopupDimension::Cells(60));
+        let cells_int: PopupDimension = serde_json::from_str("60").unwrap();
+        assert_eq!(cells_int, PopupDimension::Cells(60));
+
+        // Percent clamps to 100, resolves against the axis.
+        let over: PopupDimension = serde_json::from_str("\"150%\"").unwrap();
+        assert_eq!(over, PopupDimension::Percent(100));
+
+        // Always serializes to a string for stable round-tripping.
+        assert_eq!(
+            serde_json::to_string(&PopupDimension::Percent(80)).unwrap(),
+            "\"80%\""
+        );
+        assert_eq!(
+            serde_json::to_string(&PopupDimension::Cells(60)).unwrap(),
+            "\"60\""
+        );
+    }
+
+    #[test]
+    fn popup_spec_omitted_fields_default_to_none() {
+        let spec: PopupSpec = serde_json::from_str("{}").unwrap();
+        assert_eq!(spec, PopupSpec::default());
+        assert!(spec.width.is_none());
+        assert!(spec.border.is_none());
+        // Default skips all None fields on serialize.
+        assert_eq!(serde_json::to_string(&spec).unwrap(), "{}");
+    }
+
+    #[test]
+    fn popup_spec_border_padding_bg_round_trip() {
+        let spec = PopupSpec {
+            width: Some(PopupDimension::Percent(70)),
+            height: Some(PopupDimension::Cells(20)),
+            border: Some(true),
+            border_style: Some(PopupBorderStyle::Double),
+            border_color: Some("#ff0000".to_string()),
+            padding: Some(2),
+            bg: Some("black".to_string()),
+            title: Some("Board".to_string()),
+        };
+        let json = serde_json::to_string(&spec).unwrap();
+        let back: PopupSpec = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, spec);
+    }
+
+    #[test]
+    fn popup_spec_merge_per_call_overrides_manifest_field_by_field() {
+        let manifest = PopupSpec {
+            width: Some(PopupDimension::Percent(50)),
+            height: Some(PopupDimension::Percent(50)),
+            border: Some(true),
+            border_style: Some(PopupBorderStyle::Single),
+            border_color: Some("blue".to_string()),
+            padding: Some(1),
+            bg: Some("black".to_string()),
+            title: Some("Manifest".to_string()),
+        };
+        // Per-call sets only some fields; the rest fall back to the manifest.
+        let per_call = PopupSpec {
+            width: Some(PopupDimension::Cells(90)),
+            border: Some(false),
+            title: Some("Call".to_string()),
+            ..Default::default()
+        };
+        let merged = manifest.merge(&per_call);
+        // Overridden by per-call.
+        assert_eq!(merged.width, Some(PopupDimension::Cells(90)));
+        assert_eq!(merged.border, Some(false));
+        assert_eq!(merged.title.as_deref(), Some("Call"));
+        // Inherited from manifest.
+        assert_eq!(merged.height, Some(PopupDimension::Percent(50)));
+        assert_eq!(merged.border_style, Some(PopupBorderStyle::Single));
+        assert_eq!(merged.border_color.as_deref(), Some("blue"));
+        assert_eq!(merged.padding, Some(1));
+        assert_eq!(merged.bg.as_deref(), Some("black"));
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,7 +342,120 @@ pub struct PluginManifestPane {
     pub platforms: Option<Vec<PluginPlatform>>,
     #[serde(default)]
     pub placement: PluginPanePlacement,
+    /// Styling/sizing for `placement = popup`. Manifest-level default; a per-call
+    /// `PluginPaneOpenParams.popup` overrides field-by-field via [`PopupSpec::merge`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popup: Option<PopupSpec>,
     pub command: Vec<String>,
+}
+
+/// A popup dimension: either a percentage of the relevant terminal axis
+/// (`"80%"`) or an absolute cell count (`60`). Deserializes from a JSON string
+/// or an integer; always serializes to a string for stable round-tripping.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PopupDimension {
+    /// Percentage of the terminal axis, clamped to 1..=100.
+    Percent(u16),
+    /// Absolute cell count.
+    Cells(u16),
+}
+
+impl Serialize for PopupDimension {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let s = match self {
+            PopupDimension::Percent(pct) => format!("{pct}%"),
+            PopupDimension::Cells(cells) => cells.to_string(),
+        };
+        serializer.serialize_str(&s)
+    }
+}
+
+impl<'de> Deserialize<'de> for PopupDimension {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Raw {
+            Int(i64),
+            Str(String),
+        }
+        match Raw::deserialize(deserializer)? {
+            Raw::Int(n) => {
+                if n < 0 {
+                    return Err(serde::de::Error::custom(
+                        "popup dimension cannot be negative",
+                    ));
+                }
+                Ok(PopupDimension::Cells(n.min(u16::MAX as i64) as u16))
+            }
+            Raw::Str(s) => {
+                let trimmed = s.trim();
+                if let Some(pct) = trimmed.strip_suffix('%') {
+                    let pct: u16 = pct
+                        .trim()
+                        .parse()
+                        .map_err(|_| serde::de::Error::custom("invalid popup percent dimension"))?;
+                    Ok(PopupDimension::Percent(pct.min(100)))
+                } else {
+                    let cells: u16 = trimmed
+                        .parse()
+                        .map_err(|_| serde::de::Error::custom("invalid popup cell dimension"))?;
+                    Ok(PopupDimension::Cells(cells))
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PopupBorderStyle {
+    #[default]
+    Single,
+    Double,
+    Rounded,
+    Thick,
+}
+
+/// Styling and sizing for a popup pane. All fields optional and additive so
+/// callers (manifest or per-call) only specify what they want to override.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct PopupSpec {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<PopupDimension>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<PopupDimension>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border_style: Option<PopupBorderStyle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border_color: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub padding: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bg: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+impl PopupSpec {
+    /// Field-by-field merge where `override_` (a per-call spec) wins over `self`
+    /// (the manifest default) for every field it sets.
+    pub fn merge(&self, override_: &PopupSpec) -> PopupSpec {
+        PopupSpec {
+            width: override_.width.or(self.width),
+            height: override_.height.or(self.height),
+            border: override_.border.or(self.border),
+            border_style: override_.border_style.or(self.border_style),
+            border_color: override_
+                .border_color
+                .clone()
+                .or_else(|| self.border_color.clone()),
+            padding: override_.padding.or(self.padding),
+            bg: override_.bg.clone().or_else(|| self.bg.clone()),
+            title: override_.title.clone().or_else(|| self.title.clone()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -416,6 +612,10 @@ pub struct PluginPaneOpenParams {
     pub focus: bool,
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub env: HashMap<String, String>,
+    /// Per-call popup styling/sizing override for `placement = popup`. Merged
+    /// over the manifest pane's `popup` default via [`PopupSpec::merge`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub popup: Option<PopupSpec>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -426,6 +626,9 @@ pub enum PluginPanePlacement {
     Split,
     Tab,
     Zoomed,
+    /// Ephemeral floating centered terminal rendered on top of the tiled layout,
+    /// outside the layout tree. Dropped on session restore and live-handoff.
+    Popup,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
