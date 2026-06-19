@@ -74,6 +74,11 @@ pub struct TerminalState {
     pub id: TerminalId,
     pub cwd: PathBuf,
     pub detected_agent: Option<Agent>,
+    /// Display name of a non-shell foreground command (script or agent)
+    /// running in this terminal, or `None` when the pane's own shell is in
+    /// the foreground. Projected from the foreground process probe; drives
+    /// the opt-in tmux-style "kill pane running <cmd>?" close confirmation.
+    pub foreground_command: Option<String>,
     pub fallback_state: AgentState,
     fallback_visible_blocker: bool,
     fallback_observed_at: Option<Instant>,
@@ -100,6 +105,7 @@ impl TerminalState {
             id,
             cwd,
             detected_agent: None,
+            foreground_command: None,
             fallback_state: AgentState::Unknown,
             fallback_visible_blocker: false,
             fallback_observed_at: None,
