@@ -301,10 +301,15 @@ title = "Board"     # optional border title
 
 [[panes.popup.breakpoints]]
 max_cols = 100       # applies when the host tab area is <= 100 columns
+max_rows = 40        # optional; applies when the host tab area is <= 40 rows
 width = "100%"
 height = "90%"
 border = false
+border_style = "single"
+border_color = "#cba6f7"
 padding = 0
+bg = "#11111b"
+title = "Board"
 ```
 
 All `[panes.popup]` fields are optional. Dimensions accept either a percentage
@@ -319,6 +324,11 @@ when every provided limit matches. Matching breakpoints override popup fields
 field-by-field in manifest order, so later matching rules win. This gives plugin
 authors a simple media-query-style escape hatch for narrow windows and mobile
 clients.
+
+A breakpoint can set `width`, `height`, `border`, `border_style`,
+`border_color`, `padding`, `bg`, and `title`; omitted fields keep the current
+effective value. Breakpoint `width` and `height` accept the same percentage or
+absolute-cell forms as `[panes.popup]`.
 
 Popup commands run inside a normal PTY. Herdr resizes that PTY to the popup's
 current inner content rect whenever the host terminal size changes, so full-screen
