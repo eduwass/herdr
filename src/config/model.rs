@@ -787,6 +787,8 @@ pub struct UiConfig {
     /// Show the agent's live OSC/session title in the pane border label when set,
     /// taking precedence over the detected agent name but never over a manual rename. Default: false.
     pub pane_border_shows_osc_title: bool,
+    /// Use rounded corner box-drawing characters for split pane borders. Default: false.
+    pub rounded_pane_borders: bool,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
     /// Accent color for highlights, borders, and navigation UI.
@@ -979,6 +981,7 @@ impl Default for UiConfig {
             pane_gaps: true,
             show_agent_labels_on_pane_borders: false,
             pane_border_shows_osc_title: false,
+            rounded_pane_borders: false,
             agent_panel_sort: AgentPanelSortConfig::Spaces,
             accent: "cyan".into(),
             toast: ToastConfig::default(),
@@ -1214,6 +1217,19 @@ pane_border_shows_osc_title = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.ui.pane_border_shows_osc_title);
+    }
+
+    #[test]
+    fn rounded_pane_borders_default_off_and_parse() {
+        let default_config = Config::default();
+        assert!(!default_config.ui.rounded_pane_borders);
+
+        let toml = r#"
+[ui]
+rounded_pane_borders = true
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.ui.rounded_pane_borders);
     }
 
     #[test]
