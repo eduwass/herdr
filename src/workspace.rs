@@ -1343,6 +1343,7 @@ impl Workspace {
             padding: 0,
             bg: ratatui::style::Color::Reset,
             title: None,
+            breakpoints: Vec::new(),
         };
         let tab = self.active_tab_mut().expect("workspace must have tab");
         tab.popup = Some(popup::Popup::new(
