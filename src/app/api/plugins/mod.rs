@@ -1305,7 +1305,7 @@ platforms = ["linux", "macos"]
 id = "board"
 title = "Popup Board"
 placement = "popup"
-command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$HERDR_WORKSPACE_ID\" \"$HERDR_TAB_ID\" \"$HERDR_PANE_ID\" > {}; sleep 60"]
+command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$HERDR_WORKSPACE_ID\" \"$HERDR_TAB_ID\" \"$HERDR_PANE_ID\" \"$HERDR_POPUP\" \"$HERDR_TERMINAL_INITIAL_COLS\" \"$HERDR_TERMINAL_INITIAL_ROWS\" \"$HERDR_POPUP_INITIAL_COLS\" \"$HERDR_POPUP_INITIAL_ROWS\" > {}; sleep 60"]
 
 [panes.popup]
 width = "70%"
@@ -1351,6 +1351,11 @@ border_style = "double"
         );
         assert_eq!(popup_env.next(), Some(plugin_pane.pane.tab_id.as_str()));
         assert_eq!(popup_env.next(), Some(plugin_pane.pane.pane_id.as_str()));
+        assert_eq!(popup_env.next(), Some("1"));
+        assert_eq!(popup_env.next(), Some("80"));
+        assert_eq!(popup_env.next(), Some("24"));
+        let popup_initial_cols = popup_env.next().expect("popup initial cols");
+        let popup_initial_rows = popup_env.next().expect("popup initial rows");
 
         // Tracked as a plugin pane, focused as a popup, excluded from the tree.
         assert!(app.state.plugin_panes.contains_key(&popup_pane_id));
@@ -1361,6 +1366,16 @@ border_style = "double"
         let tab = ws.active_tab().unwrap();
         assert!(!tab.layout.pane_ids().contains(&popup_pane_id));
         assert!(!tab.panes.contains_key(&popup_pane_id));
+        let popup_terminal_id = tab
+            .terminal_id(popup_pane_id)
+            .expect("popup terminal id should exist");
+        let popup_runtime = app
+            .terminal_runtimes
+            .get(popup_terminal_id)
+            .expect("popup runtime should exist");
+        let (runtime_rows, runtime_cols) = popup_runtime.current_size();
+        assert_eq!(popup_initial_cols, runtime_cols.to_string());
+        assert_eq!(popup_initial_rows, runtime_rows.to_string());
         let popup_spec = &tab.popup.as_ref().unwrap().spec;
         // Per-call width override applied; manifest border_style preserved.
         assert_eq!(popup_spec.width, crate::workspace::PopupSize::Percent(90));

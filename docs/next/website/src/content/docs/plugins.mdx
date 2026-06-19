@@ -298,12 +298,36 @@ border_color = "#89b4fa"  # hex, named, or rgb(r,g,b); defaults to the theme acc
 padding = 1         # cells of inner margin between border and content (default: 0)
 bg = "#1e1e2e"     # popup background color; defaults to the theme panel background
 title = "Board"     # optional border title
+
+[[panes.popup.breakpoints]]
+max_cols = 100       # applies when the host tab area is <= 100 columns
+width = "100%"
+height = "90%"
+border = false
+padding = 0
 ```
 
 All `[panes.popup]` fields are optional. Dimensions accept either a percentage
 string (`"80%"`, clamped to the terminal axis) or an absolute cell count
 (`60`); they are clamped to a minimum content size and re-centered for the
-current terminal size.
+current terminal size. Percent dimensions and breakpoints are evaluated against
+the full tab terminal area, not the tiled pane behind the popup.
+
+Breakpoints are optional `[[panes.popup.breakpoints]]` tables. `max_cols` and
+`max_rows` are terminal-cell limits for the host tab area; a breakpoint matches
+when every provided limit matches. Matching breakpoints override popup fields
+field-by-field in manifest order, so later matching rules win. This gives plugin
+authors a simple media-query-style escape hatch for narrow windows and mobile
+clients.
+
+Popup commands run inside a normal PTY. Herdr resizes that PTY to the popup's
+current inner content rect whenever the host terminal size changes, so full-screen
+TUIs and shell scripts can react through normal terminal resize mechanisms such
+as `SIGWINCH`, `stty size`, or their TUI framework's resize event. On launch,
+Herdr also provides `HERDR_POPUP=1`, `HERDR_POPUP_INITIAL_COLS`,
+`HERDR_POPUP_INITIAL_ROWS`, `HERDR_TERMINAL_INITIAL_COLS`, and
+`HERDR_TERMINAL_INITIAL_ROWS` for simple scripts that want initial dimensions
+without querying the TTY first.
 
 On Windows, build commands, action commands, and event commands resolve common
 `PATHEXT` shims such as `npm.cmd`, `bun.cmd`, and `pnpm.cmd` when the bare

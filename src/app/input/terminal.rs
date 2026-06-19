@@ -34,6 +34,31 @@ impl App {
 
         let key_event = key.as_key_event();
 
+        if let Some((ws_idx, popup_pane_id)) = self.focused_popup_pane_id() {
+            // A focused popup behaves like tmux display-popup: it owns the
+            // keyboard until plain Esc closes it. Do this before direct/global
+            // shortcuts so prefix bindings cannot mutate the layout underneath.
+            if matches!(key_event.code, KeyCode::Esc)
+                && key_event.modifiers.is_empty()
+                && key_event.kind != crossterm::event::KeyEventKind::Release
+            {
+                self.close_popup_pane(popup_pane_id);
+                return None;
+            }
+
+            if is_modifier_only_key(&key_event.code) {
+                debug!(
+                    code = ?key_event.code,
+                    modifiers = ?key_event.modifiers,
+                    kind = ?key_event.kind,
+                    "dropping modifier-only popup key event instead of forwarding it to pane"
+                );
+                return None;
+            }
+
+            return self.prepare_key_forward_to_pane(ws_idx, popup_pane_id, key);
+        }
+
         if let Some(action) = super::terminal_direct_navigation_action(&self.state, key) {
             debug!(
                 code = ?key_event.code,
@@ -84,29 +109,6 @@ impl App {
                 "dropping modifier-only terminal key event instead of forwarding it to pane"
             );
             return None;
-        }
-
-        // Plain Esc closes a focused popup (ephemeral, like display-popup).
-        if matches!(key_event.code, KeyCode::Esc)
-            && key_event.modifiers.is_empty()
-            && key_event.kind != crossterm::event::KeyEventKind::Release
-        {
-            if let Some(ws) = self
-                .state
-                .active
-                .and_then(|idx| self.state.workspaces.get(idx))
-            {
-                if ws.active_popup_focused() {
-                    if let Some(pane_id) = ws
-                        .active_tab()
-                        .and_then(|tab| tab.popup.as_ref())
-                        .map(|p| p.pane_id)
-                    {
-                        self.close_popup_pane(pane_id);
-                        return None;
-                    }
-                }
-            }
         }
 
         let ws_idx = self.state.active?;
@@ -160,9 +162,32 @@ impl App {
             }
         }
 
+        self.prepare_key_forward_to_pane(ws_idx, pane_id, key)
+    }
+
+    fn focused_popup_pane_id(&self) -> Option<(usize, crate::layout::PaneId)> {
+        let ws_idx = self.state.active?;
+        let ws = self.state.workspaces.get(ws_idx)?;
+        if !ws.active_popup_focused() {
+            return None;
+        }
+        let pane_id = ws.active_tab()?.popup.as_ref()?.pane_id;
+        Some((ws_idx, pane_id))
+    }
+
+    fn prepare_key_forward_to_pane(
+        &mut self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+        key: TerminalKey,
+    ) -> Option<PreparedPaneInput> {
+        let rt =
+            self.state
+                .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)?;
         rt.scroll_reset();
         let protocol = rt.keyboard_protocol();
         let bytes = rt.encode_terminal_key(key);
+        let key_event = key.as_key_event();
 
         if matches!(key_event.code, KeyCode::Esc)
             || key_event
@@ -171,11 +196,10 @@ impl App {
         {
             debug!(
                 code = ?key_event.code,
-                modifiers = ?key_event.modifiers,
-                kind = ?key_event.kind,
+                mods = ?key_event.modifiers,
                 protocol = ?protocol,
-                encoded = ?bytes,
-                "forwarding potentially-ambiguous terminal key to pane"
+                bytes = ?bytes,
+                "encoded terminal key"
             );
         }
 
@@ -834,6 +858,63 @@ mod tests {
 
         assert_ne!(app.state.workspaces[0].layout.focused(), focused_before);
         assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[tokio::test]
+    async fn focused_popup_captures_direct_shortcuts_until_escape() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let popup_pane = crate::layout::PaneId::alloc();
+        let (new_pane, replaced) = ws.tabs[0]
+            .spawn_popup_argv_command(
+                popup_pane,
+                10,
+                20,
+                None,
+                &["sh".into(), "-c".into(), "sleep 60".into()],
+                &crate::pane::PaneLaunchEnv::default(),
+                app.state.pane_scrollback_limit_bytes,
+                app.state.host_terminal_theme,
+                crate::workspace::ResolvedPopupSpec::from_spec(
+                    &crate::api::schema::PopupSpec::default(),
+                    app.state.palette.accent,
+                    app.state.palette.panel_bg,
+                ),
+            )
+            .expect("popup should spawn");
+        assert!(replaced.is_none());
+        new_pane.runtime.shutdown();
+        let (runtime, mut rx) = crate::terminal::TerminalRuntime::test_with_channel(20, 10);
+        app.terminal_runtimes
+            .insert(new_pane.terminal.id.clone(), runtime);
+        app.state
+            .terminals
+            .insert(new_pane.terminal.id.clone(), new_pane.terminal);
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.keybinds.toggle_sidebar = crate::config::ActionKeybinds::direct("ctrl+alt+b");
+
+        app.handle_terminal_key(TerminalKey::new(
+            KeyCode::Char('b'),
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ))
+        .await;
+
+        assert!(!app.state.sidebar_collapsed);
+        assert!(app.state.workspaces[0].active_popup_focused());
+        assert!(rx.try_recv().is_ok(), "shortcut bytes should reach popup");
+
+        app.handle_terminal_key(TerminalKey::new(KeyCode::Esc, KeyModifiers::empty()))
+            .await;
+
+        assert!(!app.state.workspaces[0].active_popup_focused());
+        assert!(app.state.workspaces[0]
+            .active_tab()
+            .unwrap()
+            .popup
+            .is_none());
     }
 
     #[cfg(unix)]

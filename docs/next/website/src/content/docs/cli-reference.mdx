@@ -346,9 +346,14 @@ temporary zoomed overlay over the active pane. It can also open as a split, a
 new tab, a zoomed pane, or a `popup` — an ephemeral floating centered terminal
 on top of the tiled layout (dropped on restore and live-handoff). The popup
 styling flags override the manifest `[panes.popup]` defaults for a single call.
+Popup pane PTYs are resized to the popup's current inner content rect as the host
+terminal changes size; commands can observe that through normal terminal resize
+signals/events. Popup launches also receive `HERDR_POPUP=1`,
+`HERDR_POPUP_INITIAL_COLS`, `HERDR_POPUP_INITIAL_ROWS`,
+`HERDR_TERMINAL_INITIAL_COLS`, and `HERDR_TERMINAL_INITIAL_ROWS`.
 Native non-terminal plugin panes are a later surface.
 
-`--env KEY=VALUE` can be repeated on process-launching commands. It applies to the newly launched process only. Herdr-managed variables such as `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID`, `HERDR_PLUGIN_ID`, `HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`, `HERDR_PLUGIN_STATE_DIR`, `HERDR_PLUGIN_ENTRYPOINT_ID`, and `HERDR_PLUGIN_CONTEXT_JSON` stay authoritative when they conflict with caller-provided env.
+`--env KEY=VALUE` can be repeated on process-launching commands. It applies to the newly launched process only. Herdr-managed variables such as `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID`, `HERDR_PLUGIN_ID`, `HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`, `HERDR_PLUGIN_STATE_DIR`, `HERDR_PLUGIN_ENTRYPOINT_ID`, `HERDR_PLUGIN_CONTEXT_JSON`, `HERDR_POPUP`, `HERDR_POPUP_INITIAL_ROWS`, `HERDR_POPUP_INITIAL_COLS`, `HERDR_TERMINAL_INITIAL_ROWS`, and `HERDR_TERMINAL_INITIAL_COLS` stay authoritative when they conflict with caller-provided env.
 
 ## Read sources
 

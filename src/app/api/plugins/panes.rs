@@ -7,6 +7,26 @@ use crate::api::schema::{
 };
 use crate::app::App;
 
+fn popup_launch_size(
+    area: ratatui::layout::Rect,
+    spec: &crate::workspace::ResolvedPopupSpec,
+) -> Option<(u16, u16)> {
+    let (_, inner, _) = spec.rects(area)?;
+    Some((inner.height, inner.width))
+}
+
+fn popup_launch_area(
+    area: ratatui::layout::Rect,
+    fallback_rows_cols: (u16, u16),
+) -> ratatui::layout::Rect {
+    if area.width > 0 && area.height > 0 {
+        area
+    } else {
+        let (rows, cols) = fallback_rows_cols;
+        ratatui::layout::Rect::new(0, 0, cols, rows)
+    }
+}
+
 impl App {
     pub(super) fn open_plugin_overlay_pane(
         &mut self,
@@ -41,7 +61,7 @@ impl App {
             return encode_error(id, "no_active_workspace", "no active workspace");
         };
         let context = self.current_plugin_context("plugin-pane");
-        let extra_env =
+        let mut extra_env =
             match self.plugin_pane_launch_env(plugin, &pane.id, params.env.clone(), &context) {
                 Ok(env) => env,
                 Err((code, message)) => return encode_error(id, &code, message),
@@ -68,12 +88,27 @@ impl App {
             return encode_error(id, "no_active_tab", "no active tab");
         };
         let public_pane_id = format!("p_{}_{}", ws_idx + 1, pane_id.raw());
+        let fallback_rows_cols = self.state.estimate_pane_size();
+        let launch_area = popup_launch_area(self.state.view.terminal_area, fallback_rows_cols);
+        let (rows, cols) = popup_launch_size(launch_area, &resolved).unwrap_or(fallback_rows_cols);
+        extra_env.extend([
+            ("HERDR_POPUP".to_string(), "1".to_string()),
+            ("HERDR_POPUP_INITIAL_ROWS".to_string(), rows.to_string()),
+            ("HERDR_POPUP_INITIAL_COLS".to_string(), cols.to_string()),
+            (
+                "HERDR_TERMINAL_INITIAL_ROWS".to_string(),
+                launch_area.height.to_string(),
+            ),
+            (
+                "HERDR_TERMINAL_INITIAL_COLS".to_string(),
+                launch_area.width.to_string(),
+            ),
+        ]);
         let launch_env = crate::pane::PaneLaunchEnv::from_extra(extra_env).with_identity(
             workspace_id,
             tab_id,
             public_pane_id,
         );
-        let (rows, cols) = self.state.estimate_pane_size();
         let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
             return encode_error(id, "workspace_not_found", "workspace not found");
         };
@@ -366,5 +401,10 @@ fn plugin_pane_protected_env_key(key: &str) -> bool {
             | "HERDR_PLUGIN_ENTRYPOINT_ID"
             | "HERDR_PLUGIN_CONTEXT_JSON"
             | "HERDR_BIN_PATH"
+            | "HERDR_POPUP"
+            | "HERDR_POPUP_INITIAL_ROWS"
+            | "HERDR_POPUP_INITIAL_COLS"
+            | "HERDR_TERMINAL_INITIAL_ROWS"
+            | "HERDR_TERMINAL_INITIAL_COLS"
     )
 }

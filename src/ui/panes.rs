@@ -78,6 +78,39 @@ fn runtime_for_tab_pane<'a>(
         .map(|runtime| (terminal_id, runtime))
 }
 
+fn popup_inner_rect(
+    tab: &crate::workspace::Tab,
+    area: Rect,
+) -> Option<(crate::layout::PaneId, Rect)> {
+    let popup = tab.popup.as_ref()?;
+    let (_, inner, _) = popup.spec.rects(area)?;
+    Some((popup.pane_id, inner))
+}
+
+fn resize_tab_popup_pane(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    tab: &crate::workspace::Tab,
+    area: Rect,
+    cell_size: crate::kitty_graphics::HostCellSize,
+) {
+    let Some((pane_id, inner_rect)) = popup_inner_rect(tab, area) else {
+        return;
+    };
+    let Some((terminal_id, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, pane_id) else {
+        return;
+    };
+    if app.direct_attach_resize_locks.contains(terminal_id) {
+        return;
+    }
+    rt.resize(
+        inner_rect.height,
+        inner_rect.width,
+        cell_size.width_px,
+        cell_size.height_px,
+    );
+}
+
 fn stable_scrollbar_gutter(rt: &TerminalRuntime, pane_inner: Rect) -> (Rect, Option<Rect>) {
     let inner_rect = stable_terminal_inner_rect(pane_inner);
     if inner_rect == pane_inner {
@@ -106,6 +139,7 @@ pub(super) fn resize_tab_panes(
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
     let multi_pane = tab.layout.pane_count() > 1;
+    resize_tab_popup_pane(app, terminal_runtimes, tab, area, cell_size);
 
     if tab.zoomed {
         let focused_id = tab.layout.focused();
@@ -162,6 +196,12 @@ pub(super) fn compute_pane_infos(
 
     let multi_pane = ws.layout.pane_count() > 1;
     let terminal_active = app.mode == Mode::Terminal;
+
+    if resize_panes {
+        if let Some(tab) = ws.active_tab() {
+            resize_tab_popup_pane(app, terminal_runtimes, tab, area, cell_size);
+        }
+    }
 
     if ws.zoomed {
         let focused_id = ws.layout.focused();
@@ -341,20 +381,22 @@ fn render_popup(
         return;
     };
     let spec = &popup.spec;
-    let Some(outer) = spec.outer_rect(area) else {
+    let Some((outer, inner, effective)) = spec.rects(area) else {
         return;
     };
-    let inner = spec.inner_rect(outer);
 
     // Clear the region (and the border/padding band) so tiled content doesn't
     // bleed through, then paint the popup background.
     frame.render_widget(Clear, outer);
-    if spec.bg != ratatui::style::Color::Reset {
-        frame.render_widget(Block::default().style(Style::default().bg(spec.bg)), outer);
+    if effective.bg != ratatui::style::Color::Reset {
+        frame.render_widget(
+            Block::default().style(Style::default().bg(effective.bg)),
+            outer,
+        );
     }
 
-    if spec.border {
-        let border_set = match spec.border_style {
+    if effective.border {
+        let border_set = match effective.border_style {
             crate::api::schema::PopupBorderStyle::Single => ratatui::symbols::border::PLAIN,
             crate::api::schema::PopupBorderStyle::Double => ratatui::symbols::border::DOUBLE,
             crate::api::schema::PopupBorderStyle::Rounded => ratatui::symbols::border::ROUNDED,
@@ -362,17 +404,17 @@ fn render_popup(
         };
         let mut block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(spec.border_color))
+            .border_style(Style::default().fg(effective.border_color))
             .border_set(border_set)
-            .style(Style::default().bg(spec.bg));
-        if let Some(title) = spec
+            .style(Style::default().bg(effective.bg));
+        if let Some(title) = effective
             .title
             .as_deref()
             .and_then(|label| pane_border_title(label, outer.width))
         {
             block = block.title(Line::from(Span::styled(
                 title,
-                Style::default().fg(spec.border_color),
+                Style::default().fg(effective.border_color),
             )));
         }
         frame.render_widget(block, outer);
@@ -675,6 +717,61 @@ mod tests {
         assert_eq!(info.rect, area);
         assert_eq!(info.scrollbar_rect, None);
         assert_eq!(info.inner_rect, Rect::new(11, 4, 37, 6));
+    }
+
+    #[tokio::test]
+    async fn popup_runtime_resizes_from_full_terminal_area_not_split_pane() {
+        let mut app = AppState::test_new();
+        let mut workspace = Workspace::test_new("test");
+        workspace.test_split(ratatui::layout::Direction::Horizontal);
+        let popup_pane = PaneId::alloc();
+        let spec = crate::workspace::ResolvedPopupSpec::from_spec(
+            &crate::api::schema::PopupSpec {
+                width: Some(crate::api::schema::PopupDimension::Percent(80)),
+                height: Some(crate::api::schema::PopupDimension::Percent(60)),
+                border: Some(false),
+                ..Default::default()
+            },
+            app.palette.accent,
+            app.palette.panel_bg,
+        );
+        let (new_pane, replaced) = workspace.tabs[0]
+            .spawn_popup_argv_command(
+                popup_pane,
+                2,
+                2,
+                None,
+                &["sh".into(), "-c".into(), "sleep 60".into()],
+                &crate::pane::PaneLaunchEnv::default(),
+                app.pane_scrollback_limit_bytes,
+                app.host_terminal_theme,
+                spec,
+            )
+            .expect("popup should spawn");
+        assert!(replaced.is_none());
+        new_pane.runtime.shutdown();
+        workspace.tabs[0].runtimes.insert(
+            popup_pane,
+            TerminalRuntime::test_with_screen_bytes(2, 2, b""),
+        );
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+
+        let area = Rect::new(0, 0, 100, 40);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let _ = compute_pane_infos(
+            &app,
+            &terminal_runtimes,
+            area,
+            true,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+
+        let popup_runtime = app.workspaces[0].tabs[0]
+            .runtimes
+            .get(&popup_pane)
+            .expect("popup runtime");
+        assert_eq!(popup_runtime.current_size(), (24, 80));
     }
 
     #[tokio::test]
