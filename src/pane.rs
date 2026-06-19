@@ -171,6 +171,33 @@ async fn publish_state_changed_event(
     }
 }
 
+/// Project the agent's OSC/session title into pure terminal state when it changes.
+/// `last_published` tracks the most recently sent value to dedupe noisy redraws.
+async fn publish_osc_title_if_changed(
+    state_events: &mpsc::Sender<AppEvent>,
+    pane_id: PaneId,
+    osc_title: &str,
+    last_published: &mut String,
+) {
+    if osc_title == last_published.as_str() {
+        return;
+    }
+    last_published.clear();
+    last_published.push_str(osc_title);
+    let normalized = osc_title.trim();
+    let osc_title = (!normalized.is_empty()).then(|| normalized.to_string());
+    if let Err(e) = state_events
+        .send(AppEvent::AgentOscTitleChanged { pane_id, osc_title })
+        .await
+    {
+        warn!(
+            pane = pane_id.raw(),
+            err = %e,
+            "failed to deliver AgentOscTitleChanged event"
+        );
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct AgentDetectionPublishUpdate {
     state: AgentState,
@@ -479,6 +506,7 @@ fn spawn_basic_detection_task(
         let mut last_screen_scan_detection_content_seq = None;
         let mut agent_startup_grace_until = None;
         let mut pending_idle = PendingIdleConfirmation::default();
+        let mut last_published_osc_title = String::new();
 
         loop {
             let sleep_duration = if pending_idle.active() {
@@ -692,6 +720,13 @@ fn spawn_basic_detection_task(
             );
 
             let osc_title = terminal.agent_osc_title();
+            publish_osc_title_if_changed(
+                &state_events,
+                pane_id,
+                &osc_title,
+                &mut last_published_osc_title,
+            )
+            .await;
             let osc_progress = terminal.agent_osc_progress();
             let Some(screen_detection) = detection_update_for_publish_with_osc(
                 agent,
@@ -1819,6 +1854,7 @@ impl PaneRuntime {
                 let mut last_screen_scan_detection_content_seq = None;
                 let mut agent_startup_grace_until = None;
                 let mut pending_idle = PendingIdleConfirmation::default();
+                let mut last_published_osc_title = String::new();
 
                 tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -2079,6 +2115,13 @@ impl PaneRuntime {
                     );
 
                     let osc_title = terminal.agent_osc_title();
+                    publish_osc_title_if_changed(
+                        &state_events,
+                        pane_id,
+                        &osc_title,
+                        &mut last_published_osc_title,
+                    )
+                    .await;
                     let osc_progress = terminal.agent_osc_progress();
                     let Some(screen_detection) = detection_update_for_publish_with_osc(
                         agent,

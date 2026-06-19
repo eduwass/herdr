@@ -308,6 +308,7 @@ mouse_scroll_lines = 3
 confirm_close = true
 prompt_new_tab_name = true
 show_agent_labels_on_pane_borders = false
+pane_border_shows_osc_title = false
 agent_panel_sort = "spaces"
 accent = "cyan"
 ```
@@ -329,6 +330,8 @@ Set `redraw_on_focus_gained = false` to avoid the visible full-screen refresh wh
 Set `mouse_scroll_lines` to change how many pane scrollback lines each mouse wheel notch scrolls. The default is 3. Pane apps that request mouse reporting still receive wheel events directly. Alternate-screen apps have no scrollback to scroll; see [Scrollback](#scrollback).
 
 Set `show_agent_labels_on_pane_borders = true` if you want detected agent labels in split pane borders when no manual pane label is set.
+
+Set `pane_border_shows_osc_title = true` to show the agent's live OSC/session title (the task line an agent emits, such as "Friendly greeting") in the pane border. The OSC title takes precedence over the detected agent name, but a manual pane rename always wins over it.
 
 ## Notifications
 
