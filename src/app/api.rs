@@ -150,6 +150,20 @@ impl App {
             return;
         }
 
+        if let AppEvent::AgentOscTitleChanged { pane_id, osc_title } = ev {
+            if let Some((_, pane_state)) = self.find_pane(pane_id) {
+                let terminal_id = pane_state.attached_terminal_id.clone();
+                if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
+                    if terminal.agent_osc_title != osc_title {
+                        terminal.agent_osc_title = osc_title;
+                        self.render_dirty.store(true, Ordering::Release);
+                        self.render_notify.notify_one();
+                    }
+                }
+            }
+            return;
+        }
+
         if let AppEvent::PaneDied { pane_id } = &ev {
             if self
                 .state

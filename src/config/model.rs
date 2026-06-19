@@ -811,6 +811,9 @@ pub struct UiConfig {
     pub show_agent_labels_on_pane_borders: bool,
     /// Hide the tab row when the workspace has one tab. Default: false.
     pub hide_tab_bar_when_single_tab: bool,
+    /// Show the agent's live OSC/session title in the pane border label when set,
+    /// taking precedence over the detected agent name but never over a manual rename. Default: false.
+    pub pane_border_shows_osc_title: bool,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
     /// Expanded sidebar row composition.
@@ -1008,6 +1011,7 @@ impl Default for UiConfig {
             pane_gaps: true,
             show_agent_labels_on_pane_borders: false,
             hide_tab_bar_when_single_tab: false,
+            pane_border_shows_osc_title: false,
             agent_panel_sort: AgentPanelSortConfig::Spaces,
             sidebar: SidebarConfig::default(),
             accent: "cyan".into(),
@@ -1252,6 +1256,19 @@ hide_tab_bar_when_single_tab = true
         assert!(config.ui.pane_gaps);
         assert!(config.ui.show_agent_labels_on_pane_borders);
         assert!(config.ui.hide_tab_bar_when_single_tab);
+    }
+
+    #[test]
+    fn pane_border_osc_title_default_off_and_parse() {
+        let default_config = Config::default();
+        assert!(!default_config.ui.pane_border_shows_osc_title);
+
+        let toml = r#"
+[ui]
+pane_border_shows_osc_title = true
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.ui.pane_border_shows_osc_title);
     }
 
     #[test]
