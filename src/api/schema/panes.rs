@@ -343,6 +343,10 @@ pub struct PaneInfo {
     pub agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    /// Raw OSC title the pane's program last set (e.g. an agent's task line).
+    /// herdr already captures this for detection; surfaced here for plugins/CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub osc_title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_agent: Option<String>,
     pub agent_status: AgentStatus,
