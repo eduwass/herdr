@@ -311,6 +311,7 @@ prompt_new_tab_name = true
 pane_borders = true
 pane_gaps = true
 show_agent_labels_on_pane_borders = false
+pane_border_shows_osc_title = false
 agent_panel_sort = "spaces"
 accent = "cyan"
 ```
@@ -336,6 +337,8 @@ Set `mouse_scroll_lines` to change how many pane scrollback lines each mouse whe
 Set `pane_borders = false` to remove split pane borders. Set `pane_gaps = false` to make split panes share compact divider borders. With borders disabled, pane gaps use one blank terminal cell between panes. Terminal cells are usually taller than they are wide, so a one-row gap between top/bottom panes can look larger than a one-column gap between left/right panes.
 
 Set `show_agent_labels_on_pane_borders = true` if you want detected agent labels in split pane borders when no manual pane label is set.
+
+Set `pane_border_shows_osc_title = true` to show the agent's live OSC/session title (the task line an agent emits, such as "Friendly greeting") in the pane border. The OSC title takes precedence over the detected agent name, but a manual pane rename always wins over it.
 
 ## Notifications
 

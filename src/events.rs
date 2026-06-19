@@ -74,6 +74,11 @@ pub enum AppEvent {
         pane_id: PaneId,
         command: Option<String>,
     },
+    /// The agent's OSC/session title changed for a pane (projected from the detector).
+    AgentOscTitleChanged {
+        pane_id: PaneId,
+        osc_title: Option<String>,
+    },
     /// Hook-authoritative agent state was reported for a pane.
     HookStateReported {
         pane_id: PaneId,
