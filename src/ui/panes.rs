@@ -552,7 +552,12 @@ fn render_pane_border_titles(app: &AppState, ws: &crate::workspace::Workspace, f
         let Some(title) = ws
             .pane_state(info.id)
             .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
-            .and_then(|terminal| terminal.border_label(app.show_agent_labels_on_pane_borders))
+            .and_then(|terminal| {
+                terminal.border_label(
+                    app.show_agent_labels_on_pane_borders,
+                    app.pane_border_shows_osc_title,
+                )
+            })
             .and_then(|label| pane_border_title(&label, info.rect.width, info.is_focused))
         else {
             continue;

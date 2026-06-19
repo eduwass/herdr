@@ -784,6 +784,9 @@ pub struct UiConfig {
     pub pane_gaps: bool,
     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
     pub show_agent_labels_on_pane_borders: bool,
+    /// Show the agent's live OSC/session title in the pane border label when set,
+    /// taking precedence over the detected agent name but never over a manual rename. Default: false.
+    pub pane_border_shows_osc_title: bool,
     /// Agent sidebar ordering. Saved values are "spaces" or "priority". Default: "spaces".
     pub agent_panel_sort: AgentPanelSortConfig,
     /// Accent color for highlights, borders, and navigation UI.
@@ -975,6 +978,7 @@ impl Default for UiConfig {
             pane_borders: true,
             pane_gaps: true,
             show_agent_labels_on_pane_borders: false,
+            pane_border_shows_osc_title: false,
             agent_panel_sort: AgentPanelSortConfig::Spaces,
             accent: "cyan".into(),
             toast: ToastConfig::default(),
@@ -1197,6 +1201,19 @@ show_agent_labels_on_pane_borders = true
         assert!(!config.ui.pane_borders);
         assert!(config.ui.pane_gaps);
         assert!(config.ui.show_agent_labels_on_pane_borders);
+    }
+
+    #[test]
+    fn pane_border_osc_title_default_off_and_parse() {
+        let default_config = Config::default();
+        assert!(!default_config.ui.pane_border_shows_osc_title);
+
+        let toml = r#"
+[ui]
+pane_border_shows_osc_title = true
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.ui.pane_border_shows_osc_title);
     }
 
     #[test]
