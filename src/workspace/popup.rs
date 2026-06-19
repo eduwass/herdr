@@ -14,7 +14,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::Color;
 
-use crate::api::schema::{PopupBorderStyle, PopupBreakpointSpec, PopupSpec};
+use crate::api::schema::{PopupBorderStyle, PopupBreakpointSpec, PopupPosition, PopupSpec};
 use crate::layout::PaneId;
 use crate::pane::PaneState;
 
@@ -54,6 +54,7 @@ pub struct ResolvedPopupSpec {
     /// Width as a percent of the terminal width (1..=100) or absolute cells.
     pub width: PopupSize,
     pub height: PopupSize,
+    pub position: PopupPosition,
     pub border: bool,
     pub border_style: PopupBorderStyle,
     pub border_color: Color,
@@ -69,6 +70,7 @@ pub struct ResolvedPopupBreakpoint {
     pub max_rows: Option<u16>,
     pub width: Option<PopupSize>,
     pub height: Option<PopupSize>,
+    pub position: Option<PopupPosition>,
     pub border: Option<bool>,
     pub border_style: Option<PopupBorderStyle>,
     pub border_color: Option<Color>,
@@ -81,6 +83,7 @@ pub struct ResolvedPopupBreakpoint {
 pub struct EffectivePopupSpec {
     pub width: PopupSize,
     pub height: PopupSize,
+    pub position: PopupPosition,
     pub border: bool,
     pub border_style: PopupBorderStyle,
     pub border_color: Color,
@@ -119,6 +122,7 @@ impl ResolvedPopupSpec {
         ResolvedPopupSpec {
             width: dimension_to_size(spec.width, POPUP_DEFAULT_WIDTH_PCT),
             height: dimension_to_size(spec.height, POPUP_DEFAULT_HEIGHT_PCT),
+            position: spec.position.unwrap_or_default(),
             border: spec.border.unwrap_or(true),
             // No `rounded_pane_borders` config exists on this branch; default to single.
             border_style: spec.border_style.unwrap_or(PopupBorderStyle::Single),
@@ -138,6 +142,7 @@ impl ResolvedPopupSpec {
         let mut effective = EffectivePopupSpec {
             width: self.width,
             height: self.height,
+            position: self.position,
             border: self.border,
             border_style: self.border_style,
             border_color: self.border_color,
@@ -154,6 +159,9 @@ impl ResolvedPopupSpec {
             }
             if let Some(height) = breakpoint.height {
                 effective.height = height;
+            }
+            if let Some(position) = breakpoint.position {
+                effective.position = position;
             }
             if let Some(border) = breakpoint.border {
                 effective.border = border;
@@ -245,6 +253,7 @@ fn resolve_breakpoint(
         height: breakpoint
             .height
             .map(|dim| dimension_to_size(Some(dim), 100)),
+        position: breakpoint.position,
         border: breakpoint.border,
         border_style: breakpoint.border_style,
         border_color: breakpoint.border_color.as_deref().map(parse),
@@ -273,6 +282,7 @@ mod tests {
         ResolvedPopupSpec {
             width: PopupSize::Percent(50),
             height: PopupSize::Percent(50),
+            position: PopupPosition::TotalCenter,
             border: true,
             border_style: PopupBorderStyle::Single,
             border_color: Color::Reset,
@@ -349,12 +359,14 @@ mod tests {
             &PopupSpec {
                 width: Some(crate::api::schema::PopupDimension::Percent(60)),
                 height: Some(crate::api::schema::PopupDimension::Percent(50)),
+                position: Some(PopupPosition::RelativeCenter),
                 border: Some(true),
                 padding: Some(2),
                 breakpoints: vec![crate::api::schema::PopupBreakpointSpec {
                     max_cols: Some(80),
                     width: Some(crate::api::schema::PopupDimension::Percent(100)),
                     height: Some(crate::api::schema::PopupDimension::Percent(90)),
+                    position: Some(PopupPosition::TotalCenter),
                     border: Some(false),
                     padding: Some(0),
                     ..Default::default()
@@ -370,11 +382,13 @@ mod tests {
         assert_eq!(inner.height, 36);
         assert!(!effective.border);
         assert_eq!(effective.padding, 0);
+        assert_eq!(effective.position, PopupPosition::TotalCenter);
 
         let (_, inner, effective) = s.rects(Rect::new(0, 0, 100, 40)).unwrap();
         assert_eq!(inner.width, 54); // 60 columns minus border + padding chrome
         assert_eq!(inner.height, 14); // 20 rows minus border + padding chrome
         assert!(effective.border);
         assert_eq!(effective.padding, 2);
+        assert_eq!(effective.position, PopupPosition::RelativeCenter);
     }
 }

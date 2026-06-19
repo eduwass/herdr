@@ -156,6 +156,7 @@ fn resize_background_tab_panes_to_terminal_area(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     terminal_area: Rect,
+    popup_area: Rect,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
     for (ws_idx, ws) in app.workspaces.iter().enumerate() {
@@ -163,7 +164,14 @@ fn resize_background_tab_panes_to_terminal_area(
             if app.active == Some(ws_idx) && tab_idx == ws.active_tab_index() {
                 continue;
             }
-            resize_tab_panes(app, terminal_runtimes, tab, terminal_area, cell_size);
+            resize_tab_panes(
+                app,
+                terminal_runtimes,
+                tab,
+                terminal_area,
+                popup_area,
+                cell_size,
+            );
         }
     }
 }
@@ -238,10 +246,13 @@ fn compute_view_internal(
         .map(|ws| ws.layout.splits(terminal_area))
         .unwrap_or_default();
 
+    let popup_area = area;
+
     let pane_infos = compute_pane_infos(
         app,
         terminal_runtimes,
         terminal_area,
+        popup_area,
         resize_panes,
         cell_size,
     );
@@ -250,6 +261,7 @@ fn compute_view_internal(
             app,
             terminal_runtimes,
             terminal_area,
+            popup_area,
             cell_size,
         );
     }
@@ -277,6 +289,7 @@ fn compute_view_internal(
         tab_scroll_right_hit_area: tab_bar_view.scroll_right_hit_area,
         new_tab_hit_area: tab_bar_view.new_tab_hit_area,
         terminal_area,
+        popup_area,
         mobile_header_rect: Rect::default(),
         mobile_menu_hit_area: Rect::default(),
         toast_hit_area,
@@ -313,10 +326,13 @@ fn compute_mobile_view(
         .map(|ws| ws.layout.splits(terminal_area))
         .unwrap_or_default();
 
+    let popup_area = area;
+
     let pane_infos = compute_pane_infos(
         app,
         terminal_runtimes,
         terminal_area,
+        popup_area,
         resize_panes,
         cell_size,
     );
@@ -325,6 +341,7 @@ fn compute_mobile_view(
             app,
             terminal_runtimes,
             terminal_area,
+            popup_area,
             cell_size,
         );
     }
@@ -346,6 +363,7 @@ fn compute_mobile_view(
         tab_scroll_right_hit_area: Rect::default(),
         new_tab_hit_area: Rect::default(),
         terminal_area,
+        popup_area,
         mobile_header_rect: header_rect,
         mobile_menu_hit_area: header_hits.menu,
         toast_hit_area,
@@ -369,6 +387,7 @@ pub fn render_with_runtime_registry(
     let sidebar_area = app.view.sidebar_rect;
     let tab_bar_area = app.view.tab_bar_rect;
     let terminal_area = app.view.terminal_area;
+    let popup_area = app.view.popup_area;
 
     if app.view.layout == ViewLayout::Mobile {
         render_mobile_header(app, terminal_runtimes, frame, app.view.mobile_header_rect);
@@ -380,7 +399,7 @@ pub fn render_with_runtime_registry(
     if app.view.layout != ViewLayout::Mobile {
         render_tab_bar(app, frame, tab_bar_area);
     }
-    render_panes(app, terminal_runtimes, frame, terminal_area);
+    render_panes(app, terminal_runtimes, frame, terminal_area, popup_area);
 
     // Ambient notifications sit above panes, but below interactive overlays.
     render_notifications(app, frame, terminal_area);
@@ -634,6 +653,7 @@ mod tests {
         assert_eq!(app.view.tab_bar_rect, Rect::default());
         assert_eq!(app.view.mobile_header_rect, Rect::new(0, 0, 44, 2));
         assert_eq!(app.view.terminal_area, Rect::new(0, 2, 44, 18));
+        assert_eq!(app.view.popup_area, Rect::new(0, 0, 44, 20));
         assert_eq!(app.view.mobile_menu_hit_area.height, 2);
         assert_eq!(
             app.view.mobile_menu_hit_area.x + app.view.mobile_menu_hit_area.width,
@@ -661,6 +681,7 @@ mod tests {
 
         assert_eq!(app.view.layout, ViewLayout::Desktop);
         assert!(app.view.terminal_area.x > 0);
+        assert_eq!(app.view.popup_area, Rect::new(0, 0, 100, 20));
         assert_eq!(app.view.toast_hit_area.x, 0);
         assert_eq!(app.view.toast_hit_area.y, 0);
     }

@@ -80,21 +80,40 @@ fn runtime_for_tab_pane<'a>(
 
 fn popup_inner_rect(
     tab: &crate::workspace::Tab,
-    area: Rect,
+    popup_area: Rect,
+    relative_area: Rect,
 ) -> Option<(crate::layout::PaneId, Rect)> {
     let popup = tab.popup.as_ref()?;
+    let area = popup_area_for_spec(&popup.spec, popup_area, relative_area);
     let (_, inner, _) = popup.spec.rects(area)?;
     Some((popup.pane_id, inner))
+}
+
+fn popup_area_for_spec(
+    spec: &crate::workspace::ResolvedPopupSpec,
+    popup_area: Rect,
+    relative_area: Rect,
+) -> Rect {
+    let popup_area = if popup_area.width > 0 && popup_area.height > 0 {
+        popup_area
+    } else {
+        relative_area
+    };
+    match spec.effective(popup_area).position {
+        crate::api::schema::PopupPosition::TotalCenter => popup_area,
+        crate::api::schema::PopupPosition::RelativeCenter => relative_area,
+    }
 }
 
 fn resize_tab_popup_pane(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     tab: &crate::workspace::Tab,
-    area: Rect,
+    popup_area: Rect,
+    relative_area: Rect,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
-    let Some((pane_id, inner_rect)) = popup_inner_rect(tab, area) else {
+    let Some((pane_id, inner_rect)) = popup_inner_rect(tab, popup_area, relative_area) else {
         return;
     };
     let Some((terminal_id, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, pane_id) else {
@@ -136,10 +155,11 @@ pub(super) fn resize_tab_panes(
     terminal_runtimes: &TerminalRuntimeRegistry,
     tab: &crate::workspace::Tab,
     area: Rect,
+    popup_area: Rect,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
     let multi_pane = tab.layout.pane_count() > 1;
-    resize_tab_popup_pane(app, terminal_runtimes, tab, area, cell_size);
+    resize_tab_popup_pane(app, terminal_runtimes, tab, popup_area, area, cell_size);
 
     if tab.zoomed {
         let focused_id = tab.layout.focused();
@@ -184,6 +204,7 @@ pub(super) fn compute_pane_infos(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     area: Rect,
+    popup_area: Rect,
     resize_panes: bool,
     cell_size: crate::kitty_graphics::HostCellSize,
 ) -> Vec<PaneInfo> {
@@ -199,7 +220,7 @@ pub(super) fn compute_pane_infos(
 
     if resize_panes {
         if let Some(tab) = ws.active_tab() {
-            resize_tab_popup_pane(app, terminal_runtimes, tab, area, cell_size);
+            resize_tab_popup_pane(app, terminal_runtimes, tab, popup_area, area, cell_size);
         }
     }
 
@@ -279,6 +300,7 @@ pub(super) fn render_panes(
     terminal_runtimes: &TerminalRuntimeRegistry,
     frame: &mut Frame,
     area: Rect,
+    popup_area: Rect,
 ) {
     let Some(ws_idx) = app.active else {
         render_empty(app, frame, area);
@@ -363,14 +385,15 @@ pub(super) fn render_panes(
         }
     }
 
-    render_popup(app, terminal_runtimes, frame, area, ws_idx, ws);
+    render_popup(app, terminal_runtimes, frame, popup_area, area, ws_idx, ws);
 }
 
 fn render_popup(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
     frame: &mut Frame,
-    area: Rect,
+    popup_area: Rect,
+    relative_area: Rect,
     ws_idx: usize,
     ws: &crate::workspace::Workspace,
 ) {
@@ -381,6 +404,7 @@ fn render_popup(
         return;
     };
     let spec = &popup.spec;
+    let area = popup_area_for_spec(spec, popup_area, relative_area);
     let Some((outer, inner, effective)) = spec.rects(area) else {
         return;
     };
@@ -650,6 +674,7 @@ mod tests {
             &app,
             &terminal_runtimes,
             area,
+            area,
             false,
             crate::kitty_graphics::HostCellSize::default(),
         );
@@ -679,6 +704,7 @@ mod tests {
             &app,
             &terminal_runtimes,
             area,
+            area,
             false,
             crate::kitty_graphics::HostCellSize::default(),
         );
@@ -707,6 +733,7 @@ mod tests {
         let infos = compute_pane_infos(
             &app,
             &terminal_runtimes,
+            area,
             area,
             false,
             crate::kitty_graphics::HostCellSize::default(),
@@ -757,12 +784,14 @@ mod tests {
         app.workspaces = vec![workspace];
         app.active = Some(0);
 
-        let area = Rect::new(0, 0, 100, 40);
+        let area = Rect::new(26, 1, 74, 39);
+        let popup_area = Rect::new(0, 0, 100, 40);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
         let _ = compute_pane_infos(
             &app,
             &terminal_runtimes,
             area,
+            popup_area,
             true,
             crate::kitty_graphics::HostCellSize::default(),
         );
@@ -772,6 +801,63 @@ mod tests {
             .get(&popup_pane)
             .expect("popup runtime");
         assert_eq!(popup_runtime.current_size(), (24, 80));
+    }
+
+    #[tokio::test]
+    async fn relative_center_popup_runtime_resizes_from_terminal_area() {
+        let mut app = AppState::test_new();
+        let mut workspace = Workspace::test_new("test");
+        let popup_pane = PaneId::alloc();
+        let spec = crate::workspace::ResolvedPopupSpec::from_spec(
+            &crate::api::schema::PopupSpec {
+                width: Some(crate::api::schema::PopupDimension::Percent(80)),
+                height: Some(crate::api::schema::PopupDimension::Percent(60)),
+                position: Some(crate::api::schema::PopupPosition::RelativeCenter),
+                border: Some(false),
+                ..Default::default()
+            },
+            app.palette.accent,
+            app.palette.panel_bg,
+        );
+        let (new_pane, replaced) = workspace.tabs[0]
+            .spawn_popup_argv_command(
+                popup_pane,
+                2,
+                2,
+                None,
+                &["sh".into(), "-c".into(), "sleep 60".into()],
+                &crate::pane::PaneLaunchEnv::default(),
+                app.pane_scrollback_limit_bytes,
+                app.host_terminal_theme,
+                spec,
+            )
+            .expect("popup should spawn");
+        assert!(replaced.is_none());
+        new_pane.runtime.shutdown();
+        workspace.tabs[0].runtimes.insert(
+            popup_pane,
+            TerminalRuntime::test_with_screen_bytes(2, 2, b""),
+        );
+        app.workspaces = vec![workspace];
+        app.active = Some(0);
+
+        let area = Rect::new(26, 1, 74, 39);
+        let popup_area = Rect::new(0, 0, 100, 40);
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let _ = compute_pane_infos(
+            &app,
+            &terminal_runtimes,
+            area,
+            popup_area,
+            true,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+
+        let popup_runtime = app.workspaces[0].tabs[0]
+            .runtimes
+            .get(&popup_pane)
+            .expect("popup runtime");
+        assert_eq!(popup_runtime.current_size(), (23, 59));
     }
 
     #[tokio::test]
@@ -791,6 +877,7 @@ mod tests {
         let infos = compute_pane_infos(
             &app,
             &terminal_runtimes,
+            area,
             area,
             false,
             crate::kitty_graphics::HostCellSize::default(),
@@ -824,6 +911,7 @@ mod tests {
         let infos = compute_pane_infos(
             &app,
             &terminal_runtimes,
+            area,
             area,
             false,
             crate::kitty_graphics::HostCellSize::default(),
