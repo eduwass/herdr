@@ -292,6 +292,28 @@ pub(super) fn compute_pane_infos(
         info.scrollbar_rect = scrollbar_rect;
     }
 
+    if let Some(tab) = ws.active_tab() {
+        if let Some(popup) = &tab.popup {
+            let area = popup_area_for_spec(&popup.spec, popup_area, area);
+            if let Some((outer, inner, _)) = popup.spec.rects(area) {
+                let mut inner_rect = inner;
+                let mut scrollbar_rect = None;
+                if let Some(rt) =
+                    app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, popup.pane_id)
+                {
+                    (inner_rect, scrollbar_rect) = stable_scrollbar_gutter(rt, inner);
+                }
+                pane_infos.push(PaneInfo {
+                    id: popup.pane_id,
+                    rect: outer,
+                    inner_rect,
+                    scrollbar_rect,
+                    is_focused: tab.popup_focused,
+                });
+            }
+        }
+    }
+
     pane_infos
 }
 

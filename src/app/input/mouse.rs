@@ -84,6 +84,38 @@ impl AppState {
             return self.handle_settings_mouse(mouse);
         }
 
+        if self.mode == Mode::Terminal {
+            let popup_pane_id = self
+                .active
+                .and_then(|ws_idx| self.workspaces.get(ws_idx))
+                .and_then(|ws| ws.active_tab())
+                .and_then(|tab| tab.popup_focused.then_some(tab.popup.as_ref()?.pane_id));
+            if let Some(info) = self.pane_at(mouse.column, mouse.row).cloned() {
+                if Some(info.id) == popup_pane_id {
+                    match mouse.kind {
+                        MouseEventKind::ScrollUp | MouseEventKind::ScrollDown => {
+                            self.selection = None;
+                            self.selection_autoscroll = None;
+                            self.handle_terminal_wheel(terminal_runtimes, mouse);
+                        }
+                        MouseEventKind::ScrollLeft | MouseEventKind::ScrollRight => {
+                            let _ =
+                                self.forward_pane_reported_wheel(terminal_runtimes, &info, mouse);
+                        }
+                        MouseEventKind::Down(_)
+                        | MouseEventKind::Up(_)
+                        | MouseEventKind::Drag(_) => {
+                            let _ = self.forward_pane_mouse_button(terminal_runtimes, &info, mouse);
+                        }
+                        MouseEventKind::Moved => {
+                            let _ = self.forward_pane_mouse_motion(terminal_runtimes, &info, mouse);
+                        }
+                    }
+                    return None;
+                }
+            }
+        }
+
         let launcher_enabled = self.view.layout != ViewLayout::Mobile
             && !self.sidebar_collapsed
             && matches!(
@@ -1273,7 +1305,7 @@ impl AppState {
     }
 
     pub(super) fn pane_at(&self, col: u16, row: u16) -> Option<&PaneInfo> {
-        self.view.pane_infos.iter().find(|p| {
+        self.view.pane_infos.iter().rev().find(|p| {
             col >= p.inner_rect.x
                 && col < p.inner_rect.x + p.inner_rect.width
                 && row >= p.inner_rect.y
@@ -1287,11 +1319,15 @@ impl AppState {
     }
 
     pub(crate) fn pane_info_by_id(&self, pane_id: crate::layout::PaneId) -> Option<&PaneInfo> {
-        self.view.pane_infos.iter().find(|info| info.id == pane_id)
+        self.view
+            .pane_infos
+            .iter()
+            .rev()
+            .find(|info| info.id == pane_id)
     }
 
     pub(super) fn pane_frame_at(&self, col: u16, row: u16) -> Option<&PaneInfo> {
-        self.view.pane_infos.iter().find(|p| {
+        self.view.pane_infos.iter().rev().find(|p| {
             col >= p.rect.x
                 && col < p.rect.x + p.rect.width
                 && row >= p.rect.y
@@ -1770,6 +1806,163 @@ mod tests {
             .and_then(crate::terminal::TerminalRuntime::scroll_metrics)
             .expect("scroll metrics after wheel");
         assert_eq!(metrics.offset_from_bottom, 7);
+    }
+
+    #[tokio::test]
+    async fn popup_pane_receives_wheel_scroll_over_covered_tile() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let tile_pane = ws.tabs[0].root_pane;
+        let popup_pane = crate::layout::PaneId::alloc();
+        let spec = crate::workspace::ResolvedPopupSpec::from_spec(
+            &crate::api::schema::PopupSpec {
+                width: Some(crate::api::schema::PopupDimension::Percent(80)),
+                height: Some(crate::api::schema::PopupDimension::Percent(60)),
+                border: Some(false),
+                ..Default::default()
+            },
+            app.state.palette.accent,
+            app.state.palette.panel_bg,
+        );
+        let (new_pane, replaced) = ws.tabs[0]
+            .spawn_popup_argv_command(
+                popup_pane,
+                10,
+                20,
+                None,
+                &["sh".into(), "-c".into(), "sleep 60".into()],
+                &crate::pane::PaneLaunchEnv::default(),
+                app.state.pane_scrollback_limit_bytes,
+                app.state.host_terminal_theme,
+                spec,
+            )
+            .expect("popup should spawn");
+        assert!(replaced.is_none());
+        new_pane.runtime.shutdown();
+
+        let popup_runtime = crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+            80,
+            24,
+            16 * 1024,
+            &numbered_lines_bytes(64),
+        );
+        ws.insert_test_runtime(
+            tile_pane,
+            crate::terminal::TerminalRuntime::test_with_scrollback_bytes(
+                80,
+                24,
+                16 * 1024,
+                &numbered_lines_bytes(64),
+            ),
+        );
+        ws.insert_test_runtime(popup_pane, popup_runtime);
+
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 100, 40));
+
+        let popup_info = app
+            .state
+            .pane_info_by_id(popup_pane)
+            .expect("popup pane info")
+            .clone();
+        let hit_col = popup_info.inner_rect.x + 1;
+        let hit_row = popup_info.inner_rect.y + 1;
+        assert_eq!(
+            app.state.pane_at(hit_col, hit_row).map(|info| info.id),
+            Some(popup_pane)
+        );
+
+        app.handle_mouse(mouse(MouseEventKind::ScrollUp, hit_col, hit_row));
+
+        let popup_metrics = app
+            .state
+            .runtime_for_pane_in_workspace(&app.terminal_runtimes, 0, popup_pane)
+            .and_then(crate::terminal::TerminalRuntime::scroll_metrics)
+            .expect("popup scroll metrics");
+        let tile_metrics = app
+            .state
+            .runtime_for_pane_in_workspace(&app.terminal_runtimes, 0, tile_pane)
+            .and_then(crate::terminal::TerminalRuntime::scroll_metrics)
+            .expect("tile scroll metrics");
+        assert_eq!(
+            popup_metrics.offset_from_bottom,
+            app.state.mouse_scroll_lines
+        );
+        assert_eq!(tile_metrics.offset_from_bottom, 0);
+    }
+
+    #[tokio::test]
+    async fn popup_pane_receives_clicks_over_covered_tile() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let popup_pane = crate::layout::PaneId::alloc();
+        let spec = crate::workspace::ResolvedPopupSpec::from_spec(
+            &crate::api::schema::PopupSpec {
+                width: Some(crate::api::schema::PopupDimension::Percent(80)),
+                height: Some(crate::api::schema::PopupDimension::Percent(60)),
+                border: Some(false),
+                ..Default::default()
+            },
+            app.state.palette.accent,
+            app.state.palette.panel_bg,
+        );
+        let (new_pane, replaced) = ws.tabs[0]
+            .spawn_popup_argv_command(
+                popup_pane,
+                10,
+                20,
+                None,
+                &["sh".into(), "-c".into(), "sleep 60".into()],
+                &crate::pane::PaneLaunchEnv::default(),
+                app.state.pane_scrollback_limit_bytes,
+                app.state.host_terminal_theme,
+                spec,
+            )
+            .expect("popup should spawn");
+        assert!(replaced.is_none());
+        new_pane.runtime.shutdown();
+
+        let (popup_runtime, mut popup_input_rx) =
+            crate::terminal::TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                80,
+                24,
+                0,
+                b"\x1b[?1002h\x1b[?1006h",
+                4,
+            );
+        ws.insert_test_runtime(popup_pane, popup_runtime);
+
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 100, 40));
+
+        let popup_info = app
+            .state
+            .pane_info_by_id(popup_pane)
+            .expect("popup pane info")
+            .clone();
+        let hit_col = popup_info.inner_rect.x + 1;
+        let hit_row = popup_info.inner_rect.y + 1;
+        assert_eq!(
+            app.state.pane_at(hit_col, hit_row).map(|info| info.id),
+            Some(popup_pane)
+        );
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            hit_col,
+            hit_row,
+        ));
+
+        assert!(
+            popup_input_rx.try_recv().is_ok(),
+            "click should be forwarded to the popup pane"
+        );
     }
 
     #[tokio::test]
