@@ -12,6 +12,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::warn;
 
 const DISABLE_SOUND_ENV: &str = "HERDR_DISABLE_SOUND";
+/// Overrides the built-in audio players with a custom command. The command is
+/// invoked with the mp3 file path as its single argument. Useful when herdr runs
+/// where it cannot play audio itself (e.g. a headless/remote host reached over
+/// SSH) and playback must be bridged to another machine.
+const SOUND_PLAYER_ENV: &str = "HERDR_SOUND_PLAYER";
 
 static SOUND_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 static SOUND_DONE: &[u8] = include_bytes!("../assets/sounds/done.mp3");
@@ -90,13 +95,28 @@ fn temp_sound_path() -> PathBuf {
     std::env::temp_dir().join(format!("herdr-sound-{}-{id}.mp3", std::process::id()))
 }
 
-#[cfg(windows)]
 fn run_player(path: &Path) -> Result<Output, String> {
+    if let Some(player) = custom_player() {
+        return Command::new(&player)
+            .arg(path)
+            .output()
+            .map_err(|e| format!("custom sound player {player:?} failed: {e}"));
+    }
+    run_default_player(path)
+}
+
+/// The custom sound player command from `HERDR_SOUND_PLAYER`, if set and non-empty.
+fn custom_player() -> Option<std::ffi::OsString> {
+    std::env::var_os(SOUND_PLAYER_ENV).filter(|v| !v.is_empty())
+}
+
+#[cfg(windows)]
+fn run_default_player(path: &Path) -> Result<Output, String> {
     run_windows_player(path)
 }
 
 #[cfg(target_os = "macos")]
-fn run_player(path: &Path) -> Result<Output, String> {
+fn run_default_player(path: &Path) -> Result<Output, String> {
     Command::new("afplay")
         .arg(path)
         .output()
@@ -104,7 +124,7 @@ fn run_player(path: &Path) -> Result<Output, String> {
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
-fn run_player(path: &Path) -> Result<Output, String> {
+fn run_default_player(path: &Path) -> Result<Output, String> {
     run_linux_player(path)
 }
 
@@ -238,6 +258,17 @@ mod tests {
     #[test]
     fn temp_sound_paths_are_unique() {
         assert_ne!(temp_sound_path(), temp_sound_path());
+    }
+
+    #[test]
+    fn custom_player_routes_through_env_command() {
+        // SAFETY: test-local env var read only by custom_player(); restored below.
+        unsafe { std::env::set_var(SOUND_PLAYER_ENV, "true") };
+        let result = run_player(Path::new("/tmp/does-not-matter.mp3"));
+        unsafe { std::env::remove_var(SOUND_PLAYER_ENV) };
+        // `true` ignores its arg and exits 0, proving the override was invoked
+        // instead of the OS default player.
+        assert!(result.is_ok_and(|o| o.status.success()));
     }
 
     #[cfg(not(any(windows, target_os = "macos")))]

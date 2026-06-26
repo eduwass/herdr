@@ -372,6 +372,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # By default, droid is muted.
 # [ui.sound.agents]
 # droid = "off"
+#
+# To override the built-in audio players entirely, set the HERDR_SOUND_PLAYER
+# environment variable to a command. It is invoked with the mp3 file path as its
+# single argument. Useful when herdr runs on a headless/remote host (e.g. over
+# SSH) and playback must be bridged to another machine.
 
 [session]
 # Resume supported AI-agent panes into their native conversation sessions after
