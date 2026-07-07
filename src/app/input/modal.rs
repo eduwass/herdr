@@ -1,7 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-#[cfg(test)]
-use ratatui::layout::Direction;
-use ratatui::layout::Rect;
+use ratatui::layout::{Direction, Rect};
+use std::sync::{atomic::AtomicBool, Arc};
+use tokio::sync::{mpsc, Notify};
 
 use crate::{
     app::{
@@ -856,6 +856,48 @@ pub(super) fn apply_context_menu_action(
             state.switch_tab(tab_idx);
             state.focus_pane_in_workspace(ws_idx, pane_id);
             state.toggle_zoom();
+            state.mode = Mode::Terminal;
+        }
+        (
+            ContextMenuKind::Pane {
+                ws_idx,
+                tab_idx,
+                pane_id,
+                can_move_to_new_tab,
+                ..
+            },
+            Some("Move to new tab"),
+        ) => {
+            state.selected = ws_idx;
+            state.active = Some(ws_idx);
+            state.switch_tab(tab_idx);
+
+            let label = state
+                .workspaces
+                .get(ws_idx)
+                .and_then(|ws| ws.pane_state(pane_id))
+                .and_then(|pane| state.terminals.get(&pane.attached_terminal_id))
+                .and_then(|terminal| terminal.manual_label.clone());
+
+            if can_move_to_new_tab {
+                let taken = state
+                    .workspaces
+                    .get_mut(ws_idx)
+                    .and_then(|ws| ws.take_pane_for_move(pane_id));
+                if let Some(taken) = taken {
+                    let (fallback_tx, _fallback_rx) = mpsc::channel(1);
+                    let tab_idx = state.workspaces[ws_idx].create_tab_from_existing_pane(
+                        taken.moved,
+                        label,
+                        fallback_tx,
+                        Arc::new(Notify::new()),
+                        Arc::new(AtomicBool::new(false)),
+                    );
+                    state.switch_tab(tab_idx);
+                    state.focus_pane_in_workspace(ws_idx, pane_id);
+                    state.mark_session_dirty();
+                }
+            }
             state.mode = Mode::Terminal;
         }
         (
@@ -1921,6 +1963,43 @@ mod tests {
     }
 
     #[test]
+    fn context_menu_move_pane_to_new_tab_detaches_existing_pane() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.active = Some(0);
+        state.selected = 0;
+        let moved_pane = state.workspaces[0].test_split(Direction::Horizontal);
+        state.ensure_test_terminals();
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Pane {
+                ws_idx: 0,
+                tab_idx: 0,
+                pane_id: moved_pane,
+                source_pane_id: None,
+                has_manual_label: false,
+                can_move_to_new_tab: true,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+        let move_idx = menu
+            .items()
+            .iter()
+            .position(|item| *item == "Move to new tab")
+            .expect("move item");
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, move_idx);
+
+        assert_eq!(state.mode, Mode::Terminal);
+        assert_eq!(state.workspaces[0].tabs.len(), 2);
+        assert!(!state.workspaces[0].tabs[0].panes.contains_key(&moved_pane));
+        assert!(state.workspaces[0].tabs[1].panes.contains_key(&moved_pane));
+        assert_eq!(state.workspaces[0].active_tab_index(), 1);
+        assert_eq!(state.workspaces[0].focused_pane_id(), Some(moved_pane));
+    }
+
+    #[test]
     fn context_menu_close_group_opens_group_close_confirmation() {
         let mut state = state_with_workspaces(&["main", "issue"]);
         state.active = Some(0);
@@ -1990,6 +2069,7 @@ mod tests {
                 pane_id,
                 source_pane_id: None,
                 has_manual_label: false,
+                can_move_to_new_tab: false,
             },
             x: 0,
             y: 0,

@@ -1194,6 +1194,7 @@ pub enum ContextMenuKind {
         pane_id: PaneId,
         source_pane_id: Option<PaneId>,
         has_manual_label: bool,
+        can_move_to_new_tab: bool,
     },
 }
 
@@ -1253,6 +1254,7 @@ impl ContextMenuState {
                 "Swap with focused pane",
                 "Split right",
                 "Split down",
+                "Move to new tab",
                 "Zoom",
                 "Close pane",
             ],
@@ -1265,6 +1267,32 @@ impl ContextMenuState {
                 "Swap with focused pane",
                 "Split right",
                 "Split down",
+                "Move to new tab",
+                "Zoom",
+                "Close pane",
+            ],
+            ContextMenuKind::Pane {
+                has_manual_label: true,
+                can_move_to_new_tab: true,
+                ..
+            } => &[
+                "Rename pane",
+                "Clear pane name",
+                "Split right",
+                "Split down",
+                "Move to new tab",
+                "Zoom",
+                "Close pane",
+            ],
+            ContextMenuKind::Pane {
+                has_manual_label: false,
+                can_move_to_new_tab: true,
+                ..
+            } => &[
+                "Rename pane",
+                "Split right",
+                "Split down",
+                "Move to new tab",
                 "Zoom",
                 "Close pane",
             ],

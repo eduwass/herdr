@@ -1090,6 +1090,11 @@ impl AppState {
                         .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))
                         .and_then(|terminal| terminal.manual_label.as_ref())
                         .is_some();
+                    let can_move_to_new_tab = self
+                        .workspaces
+                        .get(ws_idx)
+                        .and_then(|ws| ws.tabs.get(tab_idx))
+                        .is_some_and(|tab| tab.layout.pane_count() > 1);
                     self.context_menu = Some(ContextMenuState {
                         kind: ContextMenuKind::Pane {
                             ws_idx,
@@ -1097,6 +1102,7 @@ impl AppState {
                             pane_id: info.id,
                             source_pane_id,
                             has_manual_label,
+                            can_move_to_new_tab,
                         },
                         x: mouse.column,
                         y: mouse.row,
@@ -2883,6 +2889,7 @@ mod tests {
                 pane_id,
                 source_pane_id: None,
                 has_manual_label: false,
+                can_move_to_new_tab: false,
             },
             x: 2,
             y: 2,
