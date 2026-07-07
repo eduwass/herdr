@@ -425,10 +425,10 @@ pub(super) fn render_collapsed_workspace_label(
     frame.render_widget(
         Paragraph::new(ratatui::text::Line::from(vec![
             ratatui::text::Span::styled(
-                format!(" {name}"),
+                format!(" {name} "),
                 Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
             ),
-            ratatui::text::Span::styled(" ·", Style::default().fg(p.overlay0)),
+            ratatui::text::Span::styled("│", Style::default().fg(p.surface_dim)),
         ]))
         .style(Style::default().bg(p.panel_bg)),
         area,
