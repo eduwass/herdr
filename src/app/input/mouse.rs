@@ -2334,6 +2334,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn enabled_double_right_click_inside_same_pane_toggles_zoom() {
+        let mut app = app_for_mouse_test();
+        let mut ws = Workspace::test_new("test");
+        let source = ws.tabs[0].root_pane;
+        let target = ws.test_split(Direction::Horizontal);
+        ws.tabs[0].layout.focus_pane(source);
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.pane_double_right_click_zoom = true;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 100, 20));
+        let target_info = app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == target)
+            .expect("target pane info")
+            .clone();
+        let col = target_info.inner_rect.x + 1;
+        let row = target_info.inner_rect.y + 1;
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), col, row));
+
+        assert_eq!(app.state.mode, Mode::ContextMenu);
+        assert!(app.state.context_menu.is_some());
+        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(source));
+        assert!(!app.state.workspaces[0].active_tab().unwrap().zoomed);
+
+        app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Right), col, row));
+
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(app.state.context_menu.is_none());
+        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(target));
+        assert!(app.state.workspaces[0].active_tab().unwrap().zoomed);
+    }
+
+    #[tokio::test]
     async fn right_click_passthrough_requires_exact_modifier_match() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");

@@ -278,6 +278,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Empty/off disables this. Shift is intentionally unsupported because terminals commonly reserve Shift+mouse.
 # right_click_passthrough_modifier = ""
 
+# Toggle pane zoom on a rapid double right-click inside the same pane.
+# pane_double_right_click_zoom = false
+
 # Force a full redraw when the outer terminal regains focus.
 # Set false to reduce visible flashing when switching back to Herdr.
 # Trade-off: rare host terminal surface corruption may persist until the next full redraw.

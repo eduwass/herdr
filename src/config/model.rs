@@ -792,6 +792,8 @@ pub struct UiConfig {
     pub host_cursor: HostCursorModeConfig,
     /// Modifier that lets right-click gestures pass through to pane apps. Empty disables it.
     pub right_click_passthrough_modifier: RightClickPassthroughModifierConfig,
+    /// Toggle pane zoom on a rapid double right-click inside the same pane. Default: false.
+    pub pane_double_right_click_zoom: bool,
     /// Force a full host-terminal redraw when the outer terminal regains focus. Default: true.
     pub redraw_on_focus_gained: bool,
     /// Lines to scroll per mouse wheel notch. Default: 3.
@@ -1004,6 +1006,7 @@ impl Default for UiConfig {
             copy_on_select: true,
             host_cursor: HostCursorModeConfig::Auto,
             right_click_passthrough_modifier: RightClickPassthroughModifierConfig::default(),
+            pane_double_right_click_zoom: false,
             redraw_on_focus_gained: true,
             mouse_scroll_lines: None,
             confirm_close: true,
@@ -1272,6 +1275,19 @@ pane_border_shows_osc_title = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.ui.pane_border_shows_osc_title);
+    }
+
+    #[test]
+    fn pane_double_right_click_zoom_default_off_and_parse() {
+        let default_config = Config::default();
+        assert!(!default_config.ui.pane_double_right_click_zoom);
+
+        let toml = r#"
+[ui]
+pane_double_right_click_zoom = true
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert!(config.ui.pane_double_right_click_zoom);
     }
 
     #[test]

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## Unreleased
+
+- Added optional `ui.pane_double_right_click_zoom` to toggle pane zoom with a rapid double right-click.
+
 ## [0.7.4] - 2026-07-15
 
 ### Added
@@ -18,6 +22,7 @@
 - Refreshed the bundled Herdr agent skill for current public workspace, tab, and pane ids and the current CLI/API workflow. (#1297)
 - Expanded Japanese and Simplified Chinese CLI documentation with shell completion setup and API schema usage. (#1151)
 
+||||||| parent of f5b328b (feat: add double right-click pane zoom)
 ### Fixed
 - Collapsed Agent sidebar rows now follow the same ordering and click targets as the expanded panel, and their shortcut numbers are assigned by visible list position instead of repeating across workspaces. (#1168, #1344)
 - Shifted indexed bindings such as `prefix+shift+1..9` now match terminals that report the corresponding punctuation characters. (#1184)

@@ -257,6 +257,10 @@ impl App {
             self.handle_popup_mouse(mouse);
             return;
         }
+        if self.handle_pane_double_right_click_zoom(mouse) {
+            return;
+        }
+
         if self.handle_overlay_mouse(mouse) {
             return;
         }
@@ -522,6 +526,55 @@ impl App {
         // Preserve a short highlight after copying so the user gets visible
         // confirmation without leaving a persistent selection behind.
         self.copy_double_clicked_word(click)
+    }
+
+    fn handle_pane_double_right_click_zoom(&mut self, mouse: MouseEvent) -> bool {
+        if !self.state.pane_double_right_click_zoom {
+            self.last_pane_right_click = None;
+            return false;
+        }
+
+        if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Right)) {
+            return false;
+        }
+
+        if !mouse.modifiers.is_empty() {
+            self.last_pane_right_click = None;
+            return false;
+        }
+
+        if !matches!(self.state.mode, Mode::Terminal | Mode::ContextMenu) {
+            self.last_pane_right_click = None;
+            return false;
+        }
+
+        let Some(info) = self.state.pane_at(mouse.column, mouse.row).cloned() else {
+            self.last_pane_right_click = None;
+            return false;
+        };
+        let click = PaneClickState {
+            pane_id: info.id,
+            viewport_row: mouse.row - info.inner_rect.y,
+            col: mouse.column - info.inner_rect.x,
+            at: std::time::Instant::now(),
+        };
+
+        if !self
+            .last_pane_right_click
+            .is_some_and(|last| last.is_double_click_for(click))
+        {
+            self.last_pane_right_click = Some(click);
+            return false;
+        }
+
+        self.last_pane_right_click = None;
+        self.last_pane_click = None;
+        self.state.context_menu = None;
+        self.state.right_click_passthrough = None;
+        self.state.mode = Mode::Terminal;
+        self.state.focus_pane(click.pane_id);
+        self.state.toggle_zoom();
+        true
     }
 
     fn pane_click_candidate(&mut self, mouse: MouseEvent) -> Option<PaneClickState> {
