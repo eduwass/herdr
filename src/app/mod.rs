@@ -129,6 +129,7 @@ pub struct App {
     pub(crate) last_sidebar_divider_click: Option<Instant>,
     pub(crate) last_pane_click: Option<PaneClickState>,
     pub(crate) pending_url_click_sources: HashSet<InputSourceId>,
+    pub(crate) last_pane_right_click: Option<PaneClickState>,
     pub(crate) next_resize_poll: Instant,
     pub(crate) next_auto_update_check: Option<Instant>,
     pub(crate) next_agent_manifest_update_check: Option<Instant>,
@@ -644,6 +645,7 @@ impl App {
             copy_on_select: config.ui.copy_on_select,
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),
             right_click_passthrough: None,
+            pane_double_right_click_zoom: config.ui.pane_double_right_click_zoom,
             redraw_on_focus_gained: config.ui.redraw_on_focus_gained,
             mouse_scroll_lines: config.ui.mouse_scroll_lines(),
             confirm_close: config.ui.confirm_close,
@@ -768,6 +770,7 @@ impl App {
             last_sidebar_divider_click: None,
             last_pane_click: None,
             pending_url_click_sources: HashSet::new(),
+            last_pane_right_click: None,
             next_resize_poll: Instant::now() + RESIZE_POLL_INTERVAL,
             next_auto_update_check: version_check_enabled
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
@@ -1494,6 +1497,7 @@ impl App {
                 self.state.mouse_scroll_lines = config.ui.mouse_scroll_lines();
                 self.state.right_click_passthrough_modifiers =
                     config.ui.right_click_passthrough_modifiers();
+                self.state.pane_double_right_click_zoom = config.ui.pane_double_right_click_zoom;
                 self.state.confirm_close = config.ui.confirm_close;
                 self.state.confirm_close_running = config.ui.confirm_close_running;
                 self.state.prompt_new_tab_name = config.ui.prompt_new_tab_name;
