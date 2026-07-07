@@ -807,6 +807,8 @@ pub struct UiConfig {
     pub prompt_new_tab_name: bool,
     /// Draw borders around split panes. Default: true.
     pub pane_borders: bool,
+    /// Hide pane borders on the outer left, right, and bottom terminal edges. Default: false.
+    pub hide_outer_pane_borders: bool,
     /// Keep split panes visually separated instead of sharing divider borders. Default: true.
     pub pane_gaps: bool,
     /// Show agent labels in split pane borders when no manual pane label is set. Default: false.
@@ -1013,6 +1015,7 @@ impl Default for UiConfig {
             confirm_close_running: false,
             prompt_new_tab_name: true,
             pane_borders: true,
+            hide_outer_pane_borders: false,
             pane_gaps: true,
             show_agent_labels_on_pane_borders: false,
             hide_tab_bar_when_single_tab: false,

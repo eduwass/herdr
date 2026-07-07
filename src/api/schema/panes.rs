@@ -34,6 +34,14 @@ pub enum PaneDirection {
     Down,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PaneResizeMode {
+    Grow,
+    Shrink,
+    Reset,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema, Default)]
 pub struct PaneSwapParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -203,7 +211,10 @@ pub struct PaneFocusDirectionParams {
 pub struct PaneResizeParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane_id: Option<String>,
-    pub direction: PaneDirection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub direction: Option<PaneDirection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<PaneResizeMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub amount: Option<f32>,
 }

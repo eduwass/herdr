@@ -91,8 +91,12 @@ pub(crate) fn apply_pane_chrome(
     panes: Vec<PaneInfo>,
     pane_borders: bool,
     pane_gaps: bool,
+    hide_outer_pane_borders: bool,
+    area: Rect,
 ) -> Vec<PaneInfo> {
     let multi_pane = panes.len() > 1;
+    let right_edge = area.x.saturating_add(area.width).saturating_sub(1);
+    let bottom_edge = area.y.saturating_add(area.height).saturating_sub(1);
     panes
         .iter()
         .cloned()
@@ -118,6 +122,29 @@ pub(crate) fn apply_pane_chrome(
                         borders.remove(Borders::RIGHT);
                     }
                     if below_neighbor.is_some() {
+                        borders.remove(Borders::BOTTOM);
+                    }
+                }
+                if hide_outer_pane_borders {
+                    if info.rect.x == area.x {
+                        borders.remove(Borders::LEFT);
+                    }
+                    if info
+                        .rect
+                        .x
+                        .saturating_add(info.rect.width)
+                        .saturating_sub(1)
+                        == right_edge
+                    {
+                        borders.remove(Borders::RIGHT);
+                    }
+                    if info
+                        .rect
+                        .y
+                        .saturating_add(info.rect.height)
+                        .saturating_sub(1)
+                        == bottom_edge
+                    {
                         borders.remove(Borders::BOTTOM);
                     }
                 }
@@ -194,7 +221,13 @@ pub(super) fn resize_tab_panes(
         return;
     }
 
-    for info in apply_pane_chrome(tab.layout.panes(area), app.pane_borders, app.pane_gaps) {
+    for info in apply_pane_chrome(
+        tab.layout.panes(area),
+        app.pane_borders,
+        app.pane_gaps,
+        app.hide_outer_pane_borders,
+        area,
+    ) {
         let pane_inner = pane_inner_rect(info.rect, info.borders);
 
         if let Some((terminal_id, rt)) = runtime_for_tab_pane(terminal_runtimes, tab, info.id) {
@@ -263,7 +296,13 @@ pub(super) fn compute_pane_infos(
         }];
     }
 
-    let mut pane_infos = apply_pane_chrome(ws.layout.panes(area), app.pane_borders, app.pane_gaps);
+    let mut pane_infos = apply_pane_chrome(
+        ws.layout.panes(area),
+        app.pane_borders,
+        app.pane_gaps,
+        app.hide_outer_pane_borders,
+        area,
+    );
 
     for info in &mut pane_infos {
         let pane_inner = pane_inner_rect(info.rect, info.borders);
@@ -453,6 +492,9 @@ fn render_pane_borders(app: &AppState, ws: &crate::workspace::Workspace, frame: 
         add_pane_border_cells(&mut cells, info);
     }
     add_split_border_cells(app, &mut cells);
+    if app.hide_outer_pane_borders {
+        remove_outer_pane_border_cells(&mut cells, app.view.terminal_area);
+    }
 
     let rounded = app.rounded_pane_borders_enabled();
     let buf = frame.buffer_mut();
@@ -485,6 +527,30 @@ fn render_pane_borders(app: &AppState, ws: &crate::workspace::Workspace, frame: 
     }
 
     render_pane_border_titles(app, ws, frame);
+}
+
+fn remove_outer_pane_border_cells(
+    cells: &mut std::collections::HashMap<(u16, u16), LineCell>,
+    area: Rect,
+) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
+    let left = area.x;
+    let right = area.x.saturating_add(area.width).saturating_sub(1);
+    let bottom = area.y.saturating_add(area.height).saturating_sub(1);
+
+    cells.retain(|&(x, y), cell| {
+        if x == left || x == right {
+            return false;
+        }
+        if y == bottom {
+            cell.left = false;
+            cell.right = false;
+            return cell.up || cell.down;
+        }
+        true
+    });
 }
 
 fn add_split_border_cells(
@@ -1051,6 +1117,8 @@ mod tests {
             workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
             true,
             false,
+            false,
+            Rect::new(0, 0, 100, 20),
         );
         let left = infos.iter().find(|info| info.id == root).unwrap();
         let right = infos.iter().find(|info| info.id == right).unwrap();
@@ -1071,6 +1139,8 @@ mod tests {
             workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
             true,
             false,
+            false,
+            Rect::new(0, 0, 100, 20),
         );
         let top = infos.iter().find(|info| info.id == root).unwrap();
         let bottom = infos.iter().find(|info| info.id == bottom).unwrap();
@@ -1091,6 +1161,8 @@ mod tests {
             workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
             true,
             true,
+            false,
+            Rect::new(0, 0, 100, 20),
         );
         let left = infos.iter().find(|info| info.id == root).unwrap();
         let right = infos.iter().find(|info| info.id == right).unwrap();
@@ -1111,6 +1183,8 @@ mod tests {
             workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
             false,
             true,
+            false,
+            Rect::new(0, 0, 100, 20),
         );
         let left = infos.iter().find(|info| info.id == root).unwrap();
         let right = infos.iter().find(|info| info.id == right).unwrap();
@@ -1130,11 +1204,33 @@ mod tests {
             workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
             false,
             false,
+            false,
+            Rect::new(0, 0, 100, 20),
         );
 
         for info in infos {
             assert!(info.borders.is_empty());
             assert_eq!(pane_inner_rect(info.rect, info.borders), info.rect);
+        }
+    }
+
+    #[test]
+    fn hidden_outer_bottom_border_reclaims_inner_terminal_row() {
+        let mut workspace = Workspace::test_new("test");
+        workspace.test_split(ratatui::layout::Direction::Horizontal);
+        let area = Rect::new(0, 0, 100, 20);
+
+        let infos = apply_pane_chrome(
+            workspace.tabs[0].layout.panes(area),
+            true,
+            false,
+            true,
+            area,
+        );
+
+        for info in infos {
+            assert!(!info.borders.contains(Borders::BOTTOM));
+            assert_eq!(pane_inner_rect(info.rect, info.borders).height, 19);
         }
     }
 
@@ -1206,6 +1302,54 @@ mod tests {
         assert_eq!(buffer[(2, 2)].style().fg, Some(app.palette.accent));
         assert_eq!(buffer[(2, 1)].symbol(), "│");
         assert_eq!(buffer[(2, 1)].style().fg, Some(app.palette.accent));
+    }
+
+    #[test]
+    fn hidden_outer_pane_borders_keep_top_and_inner_split_lines() {
+        let mut app = AppState::test_new();
+        app.mode = Mode::Terminal;
+        app.hide_outer_pane_borders = true;
+        app.view.terminal_area = Rect::new(0, 0, 5, 3);
+        app.view.pane_infos = vec![
+            PaneInfo {
+                id: PaneId::from_raw(1),
+                rect: Rect::new(0, 0, 3, 3),
+                inner_rect: Rect::default(),
+                scrollbar_rect: None,
+                borders: Borders::ALL,
+                is_focused: true,
+            },
+            PaneInfo {
+                id: PaneId::from_raw(2),
+                rect: Rect::new(3, 0, 2, 3),
+                inner_rect: Rect::default(),
+                scrollbar_rect: None,
+                borders: Borders::ALL,
+                is_focused: false,
+            },
+        ];
+        app.view.split_borders = vec![crate::layout::SplitBorder {
+            pos: 3,
+            direction: ratatui::layout::Direction::Horizontal,
+            ratio: 0.5,
+            area: Rect::new(0, 0, 5, 3),
+            path: vec![],
+        }];
+        let ws = Workspace::test_new("test");
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(5, 3)).unwrap();
+
+        terminal
+            .draw(|frame| render_pane_borders(&app, &ws, frame))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(1, 0)].symbol(), "─");
+        assert_eq!(buffer[(3, 1)].symbol(), "│");
+        assert_eq!(buffer[(3, 2)].symbol(), "│");
+        assert_eq!(buffer[(0, 1)].symbol(), " ");
+        assert_eq!(buffer[(4, 1)].symbol(), " ");
+        assert_eq!(buffer[(1, 2)].symbol(), " ");
     }
 
     #[test]

@@ -405,14 +405,27 @@ impl App {
             .unwrap_or(0.05)
             .abs()
             .min(0.5);
-        let direction: NavDirection = params.direction.into();
         let area = self.state.view.terminal_area;
         let changed = self
             .state
             .workspaces
             .get_mut(ws_idx)
             .and_then(|ws| ws.tabs.get_mut(tab_idx))
-            .is_some_and(|tab| tab.layout.resize_pane(pane_id, direction, amount, area));
+            .is_some_and(|tab| match (params.direction, params.mode) {
+                (Some(direction), None) => {
+                    let direction: NavDirection = direction.into();
+                    tab.layout.resize_pane(pane_id, direction, amount, area)
+                }
+                (None, Some(crate::api::schema::PaneResizeMode::Reset)) => {
+                    tab.layout.reset_split_ratios()
+                }
+                (None, Some(mode)) => tab.layout.resize_pane_area(
+                    pane_id,
+                    matches!(mode, crate::api::schema::PaneResizeMode::Grow),
+                    amount,
+                ),
+                _ => false,
+            });
         if changed {
             self.schedule_session_save();
         }
@@ -1690,6 +1703,8 @@ impl App {
             tab.layout.panes(area),
             self.state.pane_borders,
             self.state.pane_gaps,
+            self.state.hide_outer_pane_borders,
+            area,
         )
         .into_iter()
         .filter_map(|pane| {
@@ -3452,7 +3467,8 @@ mod tests {
             "req".into(),
             crate::api::schema::PaneResizeParams {
                 pane_id: Some(root_public.clone()),
-                direction: PaneDirection::Right,
+                direction: Some(PaneDirection::Right),
+                mode: None,
                 amount: Some(0.1),
             },
         );
@@ -3474,6 +3490,69 @@ mod tests {
                 if layout.tab_id == app.public_tab_id(0, 0).unwrap()
                     && (layout.splits[0].ratio - 0.6).abs() < f32::EPSILON
         ));
+    }
+
+    #[test]
+    fn api_pane_resize_grow_mode_uses_target_pane_axis() {
+        let mut app = app_with_linked_worktree();
+        let top = app.state.workspaces[0].tabs[0].root_pane;
+        let bottom = app.state.workspaces[0].test_split(ratatui::layout::Direction::Vertical);
+        app.state.workspaces[0].tabs[0].layout.focus_pane(top);
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 100, 20));
+        let bottom_public = app.public_pane_id(0, bottom).unwrap();
+
+        let response = app.handle_pane_resize(
+            "req".into(),
+            crate::api::schema::PaneResizeParams {
+                pane_id: Some(bottom_public.clone()),
+                direction: None,
+                mode: Some(crate::api::schema::PaneResizeMode::Grow),
+                amount: Some(0.1),
+            },
+        );
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::PaneResize { resize } = success.result else {
+            panic!("expected pane resize response");
+        };
+        assert!(resize.changed);
+        assert_eq!(resize.pane_id, bottom_public);
+        assert_eq!(resize.focused_pane_id, app.public_pane_id(0, top).unwrap());
+        assert!((resize.layout.splits[0].ratio - 0.4).abs() < f32::EPSILON);
+        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(top));
+    }
+
+    #[test]
+    fn api_pane_resize_reset_mode_equalizes_all_splits() {
+        let mut app = app_with_linked_worktree();
+        let root = app.state.workspaces[0].tabs[0].root_pane;
+        app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        app.state.workspaces[0].tabs[0]
+            .layout
+            .resize_focused_area(true, 0.2);
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 100, 20));
+        let root_public = app.public_pane_id(0, root).unwrap();
+        let focused_public = app
+            .public_pane_id(0, app.state.workspaces[0].tabs[0].layout.focused())
+            .unwrap();
+
+        let response = app.handle_pane_resize(
+            "req".into(),
+            crate::api::schema::PaneResizeParams {
+                pane_id: Some(root_public.clone()),
+                direction: None,
+                mode: Some(crate::api::schema::PaneResizeMode::Reset),
+                amount: None,
+            },
+        );
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::PaneResize { resize } = success.result else {
+            panic!("expected pane resize response");
+        };
+        assert!(resize.changed);
+        assert_eq!(resize.focused_pane_id, focused_public);
+        assert!((resize.layout.splits[0].ratio - 0.5).abs() < f32::EPSILON);
     }
 
     #[test]

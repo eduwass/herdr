@@ -622,6 +622,7 @@ impl App {
             confirm_close_running: config.ui.confirm_close_running,
             prompt_new_tab_name: config.ui.prompt_new_tab_name,
             pane_borders: config.ui.pane_borders,
+            hide_outer_pane_borders: config.ui.hide_outer_pane_borders,
             pane_gaps: config.ui.pane_gaps,
             show_agent_labels_on_pane_borders: config.ui.show_agent_labels_on_pane_borders,
             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
@@ -1424,6 +1425,7 @@ impl App {
                 self.state.confirm_close_running = config.ui.confirm_close_running;
                 self.state.prompt_new_tab_name = config.ui.prompt_new_tab_name;
                 self.state.pane_borders = config.ui.pane_borders;
+                self.state.hide_outer_pane_borders = config.ui.hide_outer_pane_borders;
                 self.state.pane_gaps = config.ui.pane_gaps;
                 self.state.show_agent_labels_on_pane_borders =
                     config.ui.show_agent_labels_on_pane_borders;
@@ -3525,7 +3527,8 @@ mod tests {
             id: "req_8".into(),
             method: crate::api::schema::Method::PaneResize(crate::api::schema::PaneResizeParams {
                 pane_id: Some("w1:p1".into()),
-                direction: crate::api::schema::PaneDirection::Right,
+                direction: Some(crate::api::schema::PaneDirection::Right),
+                mode: None,
                 amount: Some(0.05),
             }),
         };

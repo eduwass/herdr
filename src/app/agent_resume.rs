@@ -290,14 +290,20 @@ fn derived_pending_agent_resume_pane_infos(
     pane_borders: bool,
     pane_gaps: bool,
 ) -> Vec<crate::layout::PaneInfo> {
-    crate::ui::apply_pane_chrome(tab.layout.panes(terminal_area), pane_borders, pane_gaps)
-        .into_iter()
-        .map(|mut info| {
-            let pane_inner = crate::ui::pane_inner_rect(info.rect, info.borders);
-            info.inner_rect = stable_terminal_inner_rect(pane_inner);
-            info
-        })
-        .collect()
+    crate::ui::apply_pane_chrome(
+        tab.layout.panes(terminal_area),
+        pane_borders,
+        pane_gaps,
+        false,
+        terminal_area,
+    )
+    .into_iter()
+    .map(|mut info| {
+        let pane_inner = crate::ui::pane_inner_rect(info.rect, info.borders);
+        info.inner_rect = stable_terminal_inner_rect(pane_inner);
+        info
+    })
+    .collect()
 }
 
 fn stable_terminal_inner_rect(pane_inner: Rect) -> Rect {
