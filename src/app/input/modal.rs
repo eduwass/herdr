@@ -755,7 +755,34 @@ pub(super) fn apply_context_menu_action(
             state.selected = ws_idx;
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
-            if !state.close_tab() {
+            let single_pane_id = state
+                .workspaces
+                .get(ws_idx)
+                .and_then(|ws| ws.tabs.get(tab_idx))
+                .filter(|tab| tab.layout.pane_count() == 1)
+                .map(|tab| tab.layout.focused());
+            if let Some(pane_id) = single_pane_id {
+                state.focus_pane_in_workspace(ws_idx, pane_id);
+            }
+            if state.confirm_close_running {
+                if let Some(pane_id) = single_pane_id {
+                    let running_command = state
+                        .terminal_id_for_pane(ws_idx, pane_id)
+                        .and_then(|terminal_id| state.terminals.get(&terminal_id))
+                        .and_then(|terminal| terminal.foreground_command.clone());
+                    state.pending_close = Some(crate::app::state::PendingClose {
+                        kind: crate::app::state::PendingCloseKind::Pane,
+                        running_command,
+                    });
+                    state.mode = Mode::ConfirmClose;
+                } else if !state.close_tab() {
+                    state.mode = if state.active.is_some() {
+                        Mode::Terminal
+                    } else {
+                        Mode::Navigate
+                    };
+                }
+            } else if !state.close_tab() {
                 state.mode = if state.active.is_some() {
                     Mode::Terminal
                 } else {
@@ -913,7 +940,23 @@ pub(super) fn apply_context_menu_action(
             state.active = Some(ws_idx);
             state.switch_tab(tab_idx);
             state.focus_pane_in_workspace(ws_idx, pane_id);
-            if !state.close_pane() {
+            if state.close_pane_would_close_workspace(ws_idx, pane_id)
+                && state.workspace_close_would_close_worktree_group(ws_idx)
+                && state.confirm_implicit_worktree_group_close(ws_idx)
+            {
+                return;
+            }
+            if state.confirm_close_running {
+                let running_command = state
+                    .terminal_id_for_pane(ws_idx, pane_id)
+                    .and_then(|terminal_id| state.terminals.get(&terminal_id))
+                    .and_then(|terminal| terminal.foreground_command.clone());
+                state.pending_close = Some(crate::app::state::PendingClose {
+                    kind: crate::app::state::PendingCloseKind::Pane,
+                    running_command,
+                });
+                state.mode = Mode::ConfirmClose;
+            } else if !state.close_pane() {
                 state.mode = if state.active.is_some() {
                     Mode::Terminal
                 } else {
@@ -1997,6 +2040,105 @@ mod tests {
         assert!(state.workspaces[0].tabs[1].panes.contains_key(&moved_pane));
         assert_eq!(state.workspaces[0].active_tab_index(), 1);
         assert_eq!(state.workspaces[0].focused_pane_id(), Some(moved_pane));
+    }
+
+    #[test]
+    fn context_menu_close_pane_prompts_for_running_process() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.active = Some(0);
+        state.selected = 0;
+        state.confirm_close_running = true;
+        let target_pane = state.workspaces[0].test_split(Direction::Horizontal);
+        state.ensure_test_terminals();
+        let terminal_id = state.terminal_id_for_pane(0, target_pane).unwrap();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .foreground_command = Some("claude".into());
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Pane {
+                ws_idx: 0,
+                tab_idx: 0,
+                pane_id: target_pane,
+                source_pane_id: None,
+                has_manual_label: false,
+                can_move_to_new_tab: true,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+        let close_idx = menu
+            .items()
+            .iter()
+            .position(|item| *item == "Close pane")
+            .expect("close pane item");
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, close_idx);
+
+        assert_eq!(state.mode, Mode::ConfirmClose);
+        assert_eq!(state.workspaces[0].focused_pane_id(), Some(target_pane));
+        assert_eq!(state.workspaces[0].panes.len(), 2);
+        assert_eq!(
+            state
+                .pending_close
+                .as_ref()
+                .and_then(|p| p.running_command.as_deref()),
+            Some("claude")
+        );
+    }
+
+    #[test]
+    fn context_menu_close_single_pane_tab_prompts_for_running_process() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.active = Some(0);
+        state.selected = 0;
+        state.confirm_close_running = true;
+        state.workspaces[0].test_add_tab(Some("logs"));
+        state.workspaces[0].switch_tab(1);
+        let pane_id = state.workspaces[0].tabs[1].layout.focused();
+        state.ensure_test_terminals();
+        let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .foreground_command = Some("claude".into());
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Tab {
+                ws_idx: 0,
+                tab_idx: 1,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+        let close_idx = menu
+            .items()
+            .iter()
+            .position(|item| *item == "Close")
+            .expect("close tab item");
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, close_idx);
+
+        assert_eq!(state.mode, Mode::ConfirmClose);
+        assert_eq!(state.workspaces[0].tabs.len(), 2);
+        assert_eq!(state.workspaces[0].active_tab_index(), 1);
+        assert_eq!(
+            state
+                .pending_close
+                .as_ref()
+                .and_then(|p| p.running_command.as_deref()),
+            Some("claude")
+        );
+
+        confirm_close_accept(&mut state);
+
+        assert_eq!(state.mode, Mode::Terminal);
+        assert_eq!(state.workspaces[0].tabs.len(), 1);
     }
 
     #[test]
