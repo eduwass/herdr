@@ -1557,6 +1557,31 @@ impl App {
                 "closing this pane would close a worktree group",
             ));
         }
+        if self.state.confirm_close_running {
+            let terminal_id = self.state.terminal_id_for_pane(ws_idx, pane_id);
+            if let Some(command) = terminal_id
+                .as_ref()
+                .and_then(|terminal_id| self.state.terminals.get(terminal_id))
+                .and_then(|terminal| terminal.foreground_command.clone())
+                .filter(|command| {
+                    foreground_command_requires_close_confirmation(
+                        command,
+                        &self.state.default_shell,
+                    )
+                })
+            {
+                self.state.pending_close = Some(crate::app::state::PendingClose {
+                    kind: crate::app::state::PendingCloseKind::Pane,
+                    running_command: Some(command),
+                });
+                self.state.mode = Mode::ConfirmClose;
+                return Err(encode_error(
+                    id,
+                    "confirmation_required",
+                    "closing this pane would terminate a running process",
+                ));
+            }
+        }
         let workspace_snapshot = self.workspace_info(ws_idx);
         let terminal_id = self.state.terminal_id_for_pane(ws_idx, pane_id);
         let should_close_workspace = {
@@ -1888,6 +1913,37 @@ fn invalid_agent(id: String) -> String {
     encode_error(id, "invalid_agent", "agent label must not be empty")
 }
 
+fn foreground_command_requires_close_confirmation(command: &str, default_shell: &str) -> bool {
+    let command = command_basename(command);
+    if command.is_empty() {
+        return false;
+    }
+    let default_shell = command_basename(default_shell);
+    if !default_shell.is_empty() && command.eq_ignore_ascii_case(default_shell) {
+        return false;
+    }
+    !matches!(
+        command.to_ascii_lowercase().as_str(),
+        "sh" | "bash"
+            | "zsh"
+            | "fish"
+            | "nu"
+            | "ksh"
+            | "csh"
+            | "tcsh"
+            | "elvish"
+            | "pwsh"
+            | "powershell"
+            | "powershell.exe"
+            | "cmd"
+            | "cmd.exe"
+    )
+}
+
+fn command_basename(command: &str) -> &str {
+    command.trim().rsplit(['/', '\\']).next().unwrap_or("")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2200,6 +2256,67 @@ mod tests {
         assert_eq!(success.id, "req");
         assert_eq!(app.state.request_remove_linked_worktree, None);
         assert!(app.state.workspaces.is_empty());
+    }
+
+    #[test]
+    fn api_pane_close_does_not_confirm_idle_shell_foreground_command() {
+        let (mut app, public_pane_id) = app_with_test_workspace();
+        app.state.confirm_close_running = true;
+        app.state.default_shell = "/bin/zsh".into();
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .terminal_id(pane_id)
+            .cloned()
+            .unwrap();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .foreground_command = Some("zsh".into());
+
+        let response = app.handle_pane_close(
+            "req".into(),
+            PaneTarget {
+                pane_id: public_pane_id,
+            },
+        );
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(success.id, "req");
+        assert!(app.state.pending_close.is_none());
+        assert!(app.state.workspaces.is_empty());
+    }
+
+    #[test]
+    fn api_pane_close_confirms_non_shell_foreground_command() {
+        let (mut app, public_pane_id) = app_with_test_workspace();
+        app.state.confirm_close_running = true;
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .terminal_id(pane_id)
+            .cloned()
+            .unwrap();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .foreground_command = Some("claude".into());
+
+        let response = app.handle_pane_close(
+            "req".into(),
+            PaneTarget {
+                pane_id: public_pane_id,
+            },
+        );
+
+        let error: ErrorResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(error.error.code, "confirmation_required");
+        assert_eq!(app.state.mode, Mode::ConfirmClose);
+        assert_eq!(
+            app.state.pending_close.as_ref().unwrap().kind,
+            crate::app::state::PendingCloseKind::Pane
+        );
+        assert_eq!(app.state.workspaces.len(), 1);
     }
 
     #[test]
