@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Added `ui.pane_double_right_click_zoom` to toggle pane zoom with a rapid double right-click inside the same pane.
+
 ### Fixed
 - Native Windows clients running inside Alacritty now preserve mouse reports and `ctrl+j` input instead of leaking mouse escape sequences into panes. `shift+enter` remains dependent on whether the outer terminal reports it as a distinct modified Enter key. (#792)
 
