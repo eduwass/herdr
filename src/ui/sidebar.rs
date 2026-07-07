@@ -784,6 +784,12 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
             Paragraph::new(Line::from(Span::styled(icon, icon_style))),
             Rect::new(ws_area.x, y, ws_area.width, 1),
         );
+
+        if is_active {
+            let buf = frame.buffer_mut();
+            buf[(sep_x, y)].set_symbol("┃");
+            buf[(sep_x, y)].set_style(Style::default().fg(p.accent));
+        }
     }
 
     if let Some(divider_y) = divider_y {
@@ -811,6 +817,11 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
                 Paragraph::new(Line::from(Span::styled(icon, icon_style))),
                 Rect::new(detail_content_area.x, y, detail_content_area.width, 1),
             );
+            if app.is_active_pane(detail.ws_idx, detail.tab_idx, detail.pane_id) {
+                let buf = frame.buffer_mut();
+                buf[(sep_x, y)].set_symbol("┃");
+                buf[(sep_x, y)].set_style(Style::default().fg(p.accent));
+            }
         }
     }
 

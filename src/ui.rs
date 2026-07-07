@@ -236,6 +236,28 @@ fn compute_view_internal(
         .map(|ws| desktop_tab_bar_and_terminal_area(app, ws, main_area))
         .unwrap_or((Rect::default(), main_area));
 
+    // Collapsed sidebar drops workspace names, so reserve a strip at the left
+    // of the tab bar for the active workspace's name instead.
+    let tab_bar_rect = if app.sidebar_collapsed {
+        let label_w = app
+            .active
+            .and_then(|i| app.workspaces.get(i))
+            .filter(|_| tab_bar_rect.width > 0)
+            .map(|ws| {
+                let name = ws.display_name_from(&app.terminals, terminal_runtimes);
+                (text::display_width_u16(&name) + 3).min(tab_bar_rect.width / 3)
+            })
+            .unwrap_or(0);
+        Rect::new(
+            tab_bar_rect.x + label_w,
+            tab_bar_rect.y,
+            tab_bar_rect.width - label_w,
+            tab_bar_rect.height,
+        )
+    } else {
+        tab_bar_rect
+    };
+
     if !app.sidebar_collapsed {
         app.workspace_scroll = normalized_workspace_scroll(app, sidebar_area, app.workspace_scroll);
         let (_, detail_area) = expanded_sidebar_sections(sidebar_area, app.sidebar_section_split);
@@ -424,6 +446,9 @@ pub fn render_with_runtime_registry(
     }
     if app.view.layout != ViewLayout::Mobile {
         render_tab_bar(app, frame, tab_bar_area);
+        if app.sidebar_collapsed {
+            tabs::render_collapsed_workspace_label(app, terminal_runtimes, frame);
+        }
     }
     render_panes(app, terminal_runtimes, frame, terminal_area);
 
