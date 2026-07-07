@@ -23,6 +23,7 @@
 
 ### Added
 - Added optional `ui.pane_double_right_click_zoom` to toggle pane zoom with a rapid double right-click.
+- Added a pane context-menu action to move the pane into a new tab.
 
 ### Changed
 - Windows support is now generally available through stable releases and uses the stable update channel by default. Existing preview installs stay on preview until explicitly switched.

@@ -1236,6 +1236,7 @@ pub enum ContextMenuKind {
         source_pane_id: Option<PaneId>,
         has_manual_label: bool,
         right_click_passthrough: bool,
+        can_move_to_new_tab: bool,
     },
 }
 
@@ -1277,6 +1278,7 @@ impl ContextMenuState {
                 source_pane_id,
                 has_manual_label,
                 right_click_passthrough,
+                can_move_to_new_tab,
                 ..
             } => {
                 let mut items = vec!["Rename pane"];
@@ -1286,7 +1288,11 @@ impl ContextMenuState {
                 if source_pane_id.is_some() {
                     items.push("Swap with focused pane");
                 }
-                items.extend(["Split right", "Split down", "Zoom"]);
+                items.extend(["Split right", "Split down"]);
+                if can_move_to_new_tab {
+                    items.push("Move to new tab");
+                }
+                items.push("Zoom");
                 items.push(if right_click_passthrough {
                     "Use Herdr right-click menu"
                 } else {
