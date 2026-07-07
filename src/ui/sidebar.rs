@@ -673,14 +673,6 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         } else {
             Style::default()
         };
-        let num_style = if is_selected {
-            Style::default().fg(p.overlay1).bg(p.surface0)
-        } else if is_active {
-            Style::default().fg(p.text).bg(p.surface_dim)
-        } else {
-            Style::default().fg(p.overlay0)
-        };
-
         if is_selected || is_active {
             let buf = frame.buffer_mut();
             for x in ws_area.x..ws_area.x + ws_area.width {
@@ -689,11 +681,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         }
 
         frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(format!("{}", visible_idx + 1), num_style),
-                Span::styled(" ", row_style),
-                Span::styled(icon, icon_style),
-            ])),
+            Paragraph::new(Line::from(Span::styled(icon, icon_style))),
             Rect::new(ws_area.x, y, ws_area.width, 1),
         );
     }
@@ -725,18 +713,10 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
                     if y >= detail_content_area.y + detail_content_area.height {
                         break;
                     }
-                    let pane_num = ws
-                        .public_pane_number(detail.pane_id)
-                        .unwrap_or(detail_idx + 1);
-                    let pane_style = Style::default().fg(p.overlay0);
                     let (icon, icon_style) =
                         agent_icon(detail.state, detail.seen, app.spinner_tick, p);
                     frame.render_widget(
-                        Paragraph::new(Line::from(vec![
-                            Span::styled(format!("{pane_num}"), pane_style),
-                            Span::styled(" ", pane_style),
-                            Span::styled(icon, icon_style),
-                        ])),
+                        Paragraph::new(Line::from(Span::styled(icon, icon_style))),
                         Rect::new(detail_content_area.x, y, detail_content_area.width, 1),
                     );
                 }
