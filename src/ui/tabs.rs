@@ -394,6 +394,47 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
     }
 }
 
+/// With the sidebar collapsed workspace names are invisible, so the strip
+/// reserved to the left of the tab bar (see `compute_view_internal`) shows the
+/// active workspace's name.
+pub(super) fn render_collapsed_workspace_label(
+    app: &AppState,
+    terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    frame: &mut Frame,
+) {
+    let tab_bar = app.view.tab_bar_rect;
+    let sidebar = app.view.sidebar_rect;
+    if tab_bar.height == 0 {
+        return;
+    }
+    let x0 = sidebar.x + sidebar.width;
+    if tab_bar.x <= x0 {
+        return;
+    }
+    let Some(ws) = app.active.and_then(|i| app.workspaces.get(i)) else {
+        return;
+    };
+    let area = Rect::new(x0, tab_bar.y, tab_bar.x - x0, 1);
+    let p = &app.palette;
+    let max_name = area.width.saturating_sub(3) as usize;
+    let name: String = ws
+        .display_name_from(&app.terminals, terminal_runtimes)
+        .chars()
+        .take(max_name)
+        .collect();
+    frame.render_widget(
+        Paragraph::new(ratatui::text::Line::from(vec![
+            ratatui::text::Span::styled(
+                format!(" {name}"),
+                Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+            ),
+            ratatui::text::Span::styled(" ·", Style::default().fg(p.overlay0)),
+        ]))
+        .style(Style::default().bg(p.panel_bg)),
+        area,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

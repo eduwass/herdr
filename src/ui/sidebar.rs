@@ -684,6 +684,12 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
             Paragraph::new(Line::from(Span::styled(icon, icon_style))),
             Rect::new(ws_area.x, y, ws_area.width, 1),
         );
+
+        if is_active {
+            let buf = frame.buffer_mut();
+            buf[(sep_x, y)].set_symbol("┃");
+            buf[(sep_x, y)].set_style(Style::default().fg(p.accent));
+        }
     }
 
     if let Some(divider_y) = divider_y {
@@ -708,6 +714,9 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     if detail_content_area != Rect::default() {
         if let Some(ws_idx) = detail_ws_idx {
             if let Some(ws) = app.workspaces.get(ws_idx) {
+                let focused_pane = (detail_ws_idx == app.active)
+                    .then(|| ws.focused_pane_id())
+                    .flatten();
                 for (detail_idx, detail) in ws.pane_details(&app.terminals).iter().enumerate() {
                     let y = detail_content_area.y + detail_idx as u16;
                     if y >= detail_content_area.y + detail_content_area.height {
@@ -719,6 +728,11 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
                         Paragraph::new(Line::from(Span::styled(icon, icon_style))),
                         Rect::new(detail_content_area.x, y, detail_content_area.width, 1),
                     );
+                    if focused_pane == Some(detail.pane_id) {
+                        let buf = frame.buffer_mut();
+                        buf[(sep_x, y)].set_symbol("┃");
+                        buf[(sep_x, y)].set_style(Style::default().fg(p.accent));
+                    }
                 }
             }
         }
