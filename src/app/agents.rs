@@ -1,9 +1,35 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use super::{terminal_targets::TerminalTargetError, App, Mode};
 use crate::api::schema::{AgentStartParams, SplitDirection};
 
+/// Project key derived from a cwd's final path component, stripping any
+/// worktree suffix (e.g. `eventintel-v2.eve-903` -> `eventintel-v2`) so
+/// sibling worktrees of the same project still match.
+fn project_key(path: &Path) -> Option<String> {
+    path.file_name()?
+        .to_str()?
+        .split('.')
+        .next()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 impl App {
+    /// Finds the workspace whose existing panes already live under the same
+    /// project as `cwd`, so a new agent lands next to its siblings instead of
+    /// the currently focused workspace. Returns `None` (caller falls back to
+    /// the active workspace) when no workspace's identity cwd shares a
+    /// project key with `cwd`.
+    pub(super) fn find_workspace_for_cwd(&self, cwd: &Path) -> Option<usize> {
+        let target_key = project_key(cwd)?;
+        self.state.workspaces.iter().position(|ws| {
+            ws.resolved_identity_cwd()
+                .and_then(|identity| project_key(&identity))
+                .is_some_and(|key| key == target_key)
+        })
+    }
+
     pub(super) fn collect_agent_infos(&self) -> Vec<crate::api::schema::AgentInfo> {
         self.state
             .workspaces
@@ -170,7 +196,9 @@ impl App {
         } else if self.state.workspaces.is_empty() {
             self.spawn_agent_workspace(cwd, rows, cols, &argv, extra_env, focus)?
         } else {
-            let ws_idx = self.state.active.unwrap_or(0);
+            let ws_idx = self
+                .find_workspace_for_cwd(&cwd)
+                .unwrap_or_else(|| self.state.active.unwrap_or(0));
             let tab_idx = self.state.workspaces[ws_idx].active_tab;
             let target_pane = self.state.workspaces[ws_idx].tabs[tab_idx].layout.focused();
             self.spawn_agent_split(
@@ -474,4 +502,26 @@ pub(super) enum AgentRenameError {
         name: String,
         candidates: Vec<crate::api::schema::AgentInfo>,
     },
+}
+
+#[cfg(test)]
+mod project_key_tests {
+    use super::project_key;
+    use std::path::Path;
+
+    #[test]
+    fn strips_worktree_suffix_so_siblings_match() {
+        let main = project_key(Path::new("/home/eduwass/Sites/eventintel-v2"));
+        let worktree = project_key(Path::new("/home/eduwass/Sites/eventintel-v2.eve-903"));
+        assert_eq!(main, Some("eventintel-v2".to_string()));
+        assert_eq!(main, worktree);
+    }
+
+    #[test]
+    fn unrelated_projects_do_not_match() {
+        assert_ne!(
+            project_key(Path::new("/home/eduwass/Sites/eventintel-v2")),
+            project_key(Path::new("/home/eduwass/Sites/dotfiles"))
+        );
+    }
 }
