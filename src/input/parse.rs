@@ -668,6 +668,14 @@ mod tests {
     }
 
     #[test]
+    fn parse_kitty_super_alt_letter_sequence() {
+        let key = parse_terminal_key_sequence("\x1b[112;11u").unwrap();
+        assert_eq!(key.code, KeyCode::Char('p'));
+        assert_eq!(key.modifiers, KeyModifiers::SUPER | KeyModifiers::ALT);
+        assert_eq!(key.kind, crossterm::event::KeyEventKind::Press);
+    }
+
+    #[test]
     fn parse_ghostty_enhanced_up_arrow_press_sequence() {
         let key = parse_terminal_key_sequence("\x1b[1;1:1A").unwrap();
         assert_eq!(key.code, KeyCode::Up);

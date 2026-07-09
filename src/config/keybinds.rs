@@ -1680,6 +1680,13 @@ close_tab = "X"
     }
 
     #[test]
+    fn direct_super_alt_binding_matches_kitty_sequence_key() {
+        let bindings = ActionKeybinds::direct("super+alt+p");
+        let key = crate::input::parse_terminal_key_sequence("\x1b[112;11u").unwrap();
+        assert!(bindings.matches_direct_key(key));
+    }
+
+    #[test]
     fn legacy_uppercase_key_event_does_not_match_unshifted_letter_binding() {
         let bindings = ActionKeybinds::prefix("n");
         assert!(!bindings
