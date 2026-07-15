@@ -28,7 +28,7 @@ fn pane_border_title(label: &str, pane_width: u16) -> Option<String> {
         return None;
     }
     let max_label_width = pane_width.saturating_sub(4) as usize;
-    Some(format!(" {} ")))
+    Some(format!(" {} ", truncate_end(label, max_label_width)))
 }
 
 // Full view computation reaches this helper for active and background panes.
@@ -699,10 +699,7 @@ fn render_pane_border_titles(
         if info.is_focused {
             style = style.add_modifier(Modifier::BOLD);
         }
-        buf.set_stringn(
-            start_x) as usize,
-            style,
-        );
+        buf.set_stringn(start_x, y, &title, (end_x - start_x) as usize, style);
     }
 }
 
