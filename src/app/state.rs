@@ -813,8 +813,6 @@ pub enum Mode {
     Navigator,
 }
 
-}
-
 /// What a pending `Mode::ConfirmClose` should close when the user accepts.
 /// The modal is shared between the worktree-group close confirmation and the
 /// opt-in "kill pane running <cmd>?" confirmation, so the descriptor records
