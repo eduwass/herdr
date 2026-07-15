@@ -572,8 +572,13 @@ impl App {
         self.state.context_menu = None;
         self.state.right_click_passthrough = None;
         self.state.mode = Mode::Terminal;
-        self.state.focus_pane(click.pane_id);
-        self.state.toggle_zoom();
+        if let Some(ws_idx) = self.state.active {
+            self.state.apply_pane_zoom(
+                ws_idx,
+                click.pane_id,
+                crate::app::actions::PaneZoomCommand::Toggle,
+            );
+        }
         true
     }
 

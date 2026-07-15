@@ -236,9 +236,14 @@ fn compute_view_internal(
         .map(|ws| desktop_tab_bar_and_terminal_area(app, ws, main_area))
         .unwrap_or((Rect::default(), main_area));
 
-    // Collapsed sidebar drops workspace names, so reserve a strip at the left
-    // of the tab bar for the active workspace's name instead.
-    let tab_bar_rect = if app.sidebar_collapsed {
+    // Collapsed compact sidebar drops workspace names, so reserve a strip at
+    // the left of the tab bar for the active workspace's name instead. Hidden
+    // mode keeps the full-width tab bar (no sidebar chrome at all).
+    let tab_bar_rect = if app.sidebar_collapsed
+        && matches!(
+            app.sidebar_collapsed_mode,
+            crate::config::SidebarCollapsedModeConfig::Compact
+        ) {
         let label_w = app
             .active
             .and_then(|i| app.workspaces.get(i))
@@ -446,7 +451,12 @@ pub fn render_with_runtime_registry(
     }
     if app.view.layout != ViewLayout::Mobile {
         render_tab_bar(app, frame, tab_bar_area);
-        if app.sidebar_collapsed {
+        if app.sidebar_collapsed
+            && matches!(
+                app.sidebar_collapsed_mode,
+                crate::config::SidebarCollapsedModeConfig::Compact
+            )
+        {
             tabs::render_collapsed_workspace_label(app, terminal_runtimes, frame);
         }
     }

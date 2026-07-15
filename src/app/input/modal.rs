@@ -1,6 +1,10 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use ratatui::layout::{Direction, Rect};
+#[cfg(test)]
+use ratatui::layout::Direction;
+use ratatui::layout::Rect;
+#[cfg(test)]
 use std::sync::{atomic::AtomicBool, Arc};
+#[cfg(test)]
 use tokio::sync::{mpsc, Notify};
 
 use crate::{
@@ -1104,9 +1108,24 @@ impl App {
     }
 
     pub(super) fn confirm_close_accept_via_api(&mut self) {
-        let ws_idx = self.state.selected;
-        if ws_idx < self.state.workspaces.len() {
-            self.close_workspace_idx_via_api(ws_idx);
+        use crate::app::state::PendingCloseKind;
+
+        let kind = self
+            .state
+            .pending_close
+            .take()
+            .map(|pending| pending.kind)
+            .unwrap_or(PendingCloseKind::Workspace);
+        match kind {
+            PendingCloseKind::Pane => {
+                self.state.close_pane_immediate();
+            }
+            PendingCloseKind::Workspace => {
+                let ws_idx = self.state.selected;
+                if ws_idx < self.state.workspaces.len() {
+                    self.close_workspace_idx_via_api(ws_idx);
+                }
+            }
         }
         self.state.mode = if self.state.active.is_some() {
             Mode::Terminal
@@ -1142,7 +1161,8 @@ impl App {
                 "tui.pane.resize",
                 crate::api::schema::PaneResizeParams {
                     pane_id: None,
-                    direction: super::navigate::api_pane_direction(direction),
+                    direction: Some(super::navigate::api_pane_direction(direction)),
+                    mode: None,
                     amount: None,
                 },
             );
@@ -2277,6 +2297,7 @@ mod tests {
                 pane_id,
                 source_pane_id: None,
                 has_manual_label: false,
+                can_move_to_new_tab: false,
             },
             x: 0,
             y: 0,

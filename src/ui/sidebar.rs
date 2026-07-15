@@ -1764,7 +1764,7 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_sidebar_numbers_grouped_agents_by_list_position() {
+    fn collapsed_sidebar_shows_status_glyphs_for_grouped_agents() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         app.ensure_test_terminals();
@@ -1787,12 +1787,13 @@ mod tests {
             .expect("collapsed sidebar should render");
 
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(detail_area.x, detail_area.y)].symbol(), "1");
-        assert_eq!(buffer[(detail_area.x, detail_area.y + 1)].symbol(), "2");
+        // Slim collapsed sidebar is glyph-only (no list-position numbers).
+        assert_eq!(buffer[(detail_area.x, detail_area.y)].symbol(), "○");
+        assert_eq!(buffer[(detail_area.x, detail_area.y + 1)].symbol(), "○");
     }
 
     #[test]
-    fn collapsed_sidebar_keeps_status_visible_for_two_digit_positions() {
+    fn collapsed_sidebar_keeps_status_visible_for_many_agents() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = (1..=10)
             .map(|idx| Workspace::test_new(&format!("workspace-{idx}")))
@@ -1818,13 +1819,11 @@ mod tests {
 
         let tenth_row = detail_area.y + 9;
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(detail_area.x, tenth_row)].symbol(), "1");
-        assert_eq!(buffer[(detail_area.x + 1, tenth_row)].symbol(), "0");
-        assert_eq!(buffer[(detail_area.x + 2, tenth_row)].symbol(), "○");
+        assert_eq!(buffer[(detail_area.x, tenth_row)].symbol(), "○");
     }
 
     #[test]
-    fn collapsed_sidebar_numbers_priority_agents_by_list_position() {
+    fn collapsed_sidebar_shows_priority_agent_status_glyphs() {
         let first = Workspace::test_new("one");
         let first_pane = first.tabs[0].root_pane;
         let mut second = Workspace::test_new("two");
@@ -1861,12 +1860,9 @@ mod tests {
             .expect("collapsed sidebar should render");
 
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(detail_area.x, detail_area.y)].symbol(), "1");
-        assert_eq!(buffer[(detail_area.x, detail_area.y + 1)].symbol(), "2");
-        assert_eq!(buffer[(detail_area.x, detail_area.y + 2)].symbol(), "3");
-        assert_eq!(buffer[(detail_area.x + 2, detail_area.y)].symbol(), "◉");
+        assert_eq!(buffer[(detail_area.x, detail_area.y)].symbol(), "◉");
         assert_eq!(
-            buffer[(detail_area.x + 2, detail_area.y)].style().fg,
+            buffer[(detail_area.x, detail_area.y)].style().fg,
             Some(app.palette.red)
         );
     }

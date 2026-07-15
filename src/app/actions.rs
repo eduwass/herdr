@@ -1785,7 +1785,7 @@ impl AppState {
     }
 
     #[cfg(test)]
-    pub fn toggle_zoom(&mut self) {
+    pub(crate) fn toggle_zoom(&mut self) {
         let Some(ws_idx) = self.active else {
             return;
         };
@@ -1832,6 +1832,7 @@ impl AppState {
 
     /// Display name of the non-shell foreground command in the focused pane, if
     /// any. Drives the opt-in tmux-style close confirmation.
+    #[cfg(test)]
     fn focused_pane_foreground_command(&self) -> Option<String> {
         let ws_idx = self.active?;
         let ws = self.workspaces.get(ws_idx)?;
@@ -1843,6 +1844,7 @@ impl AppState {
     /// Defer the focused-pane close to a tmux-style "kill pane running <cmd>?"
     /// confirmation when `confirm_close_running` is enabled and the focused
     /// pane has a non-shell process running. Returns true when deferred.
+    #[cfg(test)]
     fn confirm_close_running_pane(&mut self) -> bool {
         if !self.confirm_close_running {
             return false;
@@ -1896,7 +1898,34 @@ impl AppState {
             return true;
         }
 
-        self.close_pane_immediate();
+        self.selection = None;
+        self.selection_autoscroll = None;
+        self.mark_session_dirty();
+        let terminal_ids = active
+            .and_then(|i| {
+                self.workspaces
+                    .get(i)
+                    .and_then(|ws| ws.focused_pane_id().map(|pane_id| (i, pane_id)))
+            })
+            .and_then(|(i, pane_id)| self.terminal_id_for_pane(i, pane_id))
+            .into_iter()
+            .collect::<Vec<_>>();
+        let pane_ids = active
+            .and_then(|i| self.workspaces.get(i).and_then(|ws| ws.focused_pane_id()))
+            .into_iter()
+            .collect::<Vec<_>>();
+        let should_close_workspace = active
+            .and_then(|i| self.workspaces.get_mut(i))
+            .is_some_and(|ws| ws.close_focused());
+        self.remove_plugin_pane_records(pane_ids);
+        if should_close_workspace {
+            if let Some(active) = active {
+                self.selected = active;
+            }
+            self.close_selected_workspace();
+        } else {
+            self.remove_unattached_terminal_ids(terminal_ids);
+        }
         false
     }
 
@@ -1922,8 +1951,11 @@ impl AppState {
             .into_iter()
             .collect::<Vec<_>>();
         let should_close_workspace = active
-            .and_then(|i| self.workspaces.get_mut(i))
-            .is_some_and(|ws| ws.close_focused());
+            .and_then(|i| {
+                let pane_id = self.workspaces.get(i)?.focused_pane_id()?;
+                self.workspaces.get_mut(i).map(|ws| ws.remove_pane(pane_id))
+            })
+            .unwrap_or(false);
         self.remove_plugin_pane_records(pane_ids);
         if should_close_workspace {
             if let Some(active) = active {

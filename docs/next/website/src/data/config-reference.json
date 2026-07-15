@@ -629,6 +629,36 @@
           "description": "Ask for confirmation before closing a workspace."
         },
         {
+          "key": "ui.confirm_close_running",
+          "type": "boolean",
+          "default": "false",
+          "description": "Ask for confirmation before closing a pane that has a non-shell foreground process running."
+        },
+        {
+          "key": "ui.hide_outer_pane_borders",
+          "type": "boolean",
+          "default": "false",
+          "description": "Hide the outer rectangle around the pane layout; keep only split borders between panes."
+        },
+        {
+          "key": "ui.pane_border_shows_osc_title",
+          "type": "boolean",
+          "default": "false",
+          "description": "Show the agent's live OSC/session title in the pane border label when set."
+        },
+        {
+          "key": "ui.pane_double_right_click_zoom",
+          "type": "boolean",
+          "default": "false",
+          "description": "Toggle pane zoom with a rapid double right-click inside the same pane."
+        },
+        {
+          "key": "ui.rounded_pane_borders",
+          "type": "boolean",
+          "default": "false",
+          "description": "Use rounded corners for pane borders instead of sharp box-drawing corners."
+        },
+        {
           "key": "ui.prompt_new_tab_name",
           "type": "boolean",
           "default": "true",
