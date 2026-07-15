@@ -16,7 +16,6 @@ use crate::api::schema::{
 };
 use crate::app::actions::{PaneZoomCommand, PaneZoomNoopReason};
 use crate::app::App;
-#[cfg(test)]
 use crate::app::Mode;
 use crate::layout::{find_in_direction, NavDirection, PaneId};
 
