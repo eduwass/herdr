@@ -1356,6 +1356,37 @@ impl App {
             }
             (
                 ContextMenuKind::Pane {
+                    ws_idx,
+                    pane_id,
+                    can_move_to_new_tab: true,
+                    ..
+                },
+                Some("Move to new tab"),
+            ) => {
+                let label = self
+                    .state
+                    .workspaces
+                    .get(ws_idx)
+                    .and_then(|ws| ws.pane_state(pane_id))
+                    .and_then(|pane| self.state.terminals.get(&pane.attached_terminal_id))
+                    .and_then(|terminal| terminal.manual_label.clone());
+                if let Some(pane_id) = self.public_pane_id(ws_idx, pane_id) {
+                    self.runtime_pane_move(
+                        "tui.pane.move_to_new_tab",
+                        crate::api::schema::PaneMoveParams {
+                            pane_id,
+                            destination: crate::api::schema::PaneMoveDestination::NewTab {
+                                workspace_id: None,
+                                label,
+                            },
+                            focus: true,
+                        },
+                    );
+                }
+                self.state.mode = Mode::Terminal;
+            }
+            (
+                ContextMenuKind::Pane {
                     ws_idx, pane_id, ..
                 },
                 Some("Close pane"),
@@ -2317,5 +2348,136 @@ mod tests {
         assert_eq!(app.state.mode, Mode::ConfirmClose);
         assert_eq!(app.state.workspaces.len(), 2);
         assert!(app.state.context_menu.is_none());
+    }
+
+    #[test]
+    fn api_context_menu_close_pane_confirms_running_process() {
+        let mut app = app_with_test_workspaces(&["main"]);
+        app.state.confirm_close_running = true;
+        app.state.mode = Mode::ContextMenu;
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .terminal_id(pane_id)
+            .cloned()
+            .unwrap();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .foreground_command = Some("claude".into());
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Pane {
+                ws_idx: 0,
+                tab_idx: 0,
+                pane_id,
+                source_pane_id: None,
+                has_manual_label: false,
+                can_move_to_new_tab: false,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+        let close_idx = menu
+            .items()
+            .iter()
+            .position(|item| *item == "Close pane")
+            .expect("close pane item");
+
+        app.apply_context_menu_action_via_api(menu, close_idx);
+
+        assert_eq!(app.state.mode, Mode::ConfirmClose);
+        assert_eq!(app.state.workspaces.len(), 1, "pane must not close yet");
+        assert_eq!(
+            app.state.pending_close.as_ref().map(|p| p.kind.clone()),
+            Some(crate::app::state::PendingCloseKind::Pane)
+        );
+    }
+
+    #[test]
+    fn api_context_menu_move_pane_to_new_tab() {
+        let mut app = app_with_test_workspaces(&["main"]);
+        app.state.mode = Mode::ContextMenu;
+        app.state.active = Some(0);
+        let target = app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        app.state.ensure_test_terminals();
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 2);
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Pane {
+                ws_idx: 0,
+                tab_idx: 0,
+                pane_id: target,
+                source_pane_id: None,
+                has_manual_label: false,
+                can_move_to_new_tab: true,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+        let move_idx = menu
+            .items()
+            .iter()
+            .position(|item| *item == "Move to new tab")
+            .expect("move to new tab item");
+
+        app.apply_context_menu_action_via_api(menu, move_idx);
+
+        assert_eq!(
+            app.state.workspaces[0].tabs.len(),
+            2,
+            "pane must move to a new tab"
+        );
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
+        assert_eq!(app.state.workspaces[0].tabs[1].layout.pane_count(), 1);
+        assert_eq!(app.state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn api_context_menu_close_single_pane_tab_confirms_running_process() {
+        let mut app = app_with_test_workspaces(&["main"]);
+        app.state.confirm_close_running = true;
+        app.state.active = Some(0);
+        app.state.mode = Mode::ContextMenu;
+        app.state.workspaces[0].test_add_tab(None);
+        app.state.ensure_test_terminals();
+        assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0].tabs[0]
+            .terminal_id(pane_id)
+            .cloned()
+            .unwrap();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .foreground_command = Some("claude".into());
+        let menu = ContextMenuState {
+            kind: ContextMenuKind::Tab {
+                ws_idx: 0,
+                tab_idx: 0,
+            },
+            x: 0,
+            y: 0,
+            list: MenuListState::new(0),
+        };
+        let close_idx = menu
+            .items()
+            .iter()
+            .position(|item| *item == "Close")
+            .expect("close tab item");
+
+        app.apply_context_menu_action_via_api(menu, close_idx);
+
+        assert_eq!(app.state.mode, Mode::ConfirmClose);
+        assert_eq!(
+            app.state.workspaces[0].tabs.len(),
+            2,
+            "tab must not close yet"
+        );
+        assert_eq!(
+            app.state.pending_close.as_ref().map(|p| p.kind.clone()),
+            Some(crate::app::state::PendingCloseKind::Pane)
+        );
     }
 }
