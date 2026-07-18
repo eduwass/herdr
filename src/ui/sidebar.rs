@@ -726,9 +726,16 @@ pub(crate) fn workspace_group_chevron_rect(card: &crate::app::state::WorkspaceCa
 
 /// Auto-scale sidebar width based on workspace identity + agent summary.
 pub(crate) fn collapsed_sidebar_sections(area: Rect) -> (Rect, Option<u16>, Rect) {
-    let content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
+    let mut content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
     if content.width == 0 || content.height == 0 {
         return (Rect::default(), None, Rect::default());
+    }
+
+    // Reserve the top row for the session-name initial when there's room, so
+    // workspace rows (and their row-based hit-testing) start one row lower.
+    if content.height >= 2 {
+        content.y += 1;
+        content.height -= 1;
     }
 
     if content.height < 7 {
@@ -784,6 +791,21 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
     if ws_area == Rect::default() {
         render_sidebar_toggle(app, frame, area, true, p);
         return;
+    }
+
+    if ws_area.y > area.y {
+        let initial = sidebar_header_label()
+            .chars()
+            .next()
+            .map(|c| c.to_string())
+            .unwrap_or_default();
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                initial,
+                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+            ))),
+            Rect::new(ws_area.x, area.y, ws_area.width, 1),
+        );
     }
 
     for (visible_idx, ws) in app.workspaces.iter().enumerate() {
@@ -1206,6 +1228,16 @@ fn apply_token_style(mut style: Style, patch: crate::config::SidebarTokenStyle) 
     style
 }
 
+/// Sidebar list header: the named session's name, or "default" for the default
+/// session. The session name comes from the environment and never changes for
+/// the life of the process, so it is resolved once.
+fn sidebar_header_label() -> &'static str {
+    static LABEL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    LABEL.get_or_init(|| {
+        crate::session::active_name().unwrap_or_else(|| "default".to_string())
+    })
+}
+
 fn render_workspace_list(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -1232,7 +1264,7 @@ fn render_workspace_list(
     if area.height > 0 {
         frame.render_widget(
             Paragraph::new(Line::from(vec![Span::styled(
-                " spaces",
+                format!(" {}", sidebar_header_label()),
                 Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
             )])),
             Rect::new(area.x, area.y, area.width, 1),
