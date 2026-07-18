@@ -1233,9 +1233,7 @@ fn apply_token_style(mut style: Style, patch: crate::config::SidebarTokenStyle) 
 /// the life of the process, so it is resolved once.
 fn sidebar_header_label() -> &'static str {
     static LABEL: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    LABEL.get_or_init(|| {
-        crate::session::active_name().unwrap_or_else(|| "default".to_string())
-    })
+    LABEL.get_or_init(|| crate::session::active_name().unwrap_or_else(|| "default".to_string()))
 }
 
 fn render_workspace_list(
