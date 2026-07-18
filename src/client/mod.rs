@@ -2970,6 +2970,9 @@ mod tests {
             window_title_osc(Some("work"), Some("task")),
             b"\x1b]0;[work] task\x07"
         );
-        assert_eq!(window_title_osc(Some("work"), None), b"\x1b]0;[work] herdr\x07");
+        assert_eq!(
+            window_title_osc(Some("work"), None),
+            b"\x1b]0;[work] herdr\x07"
+        );
     }
 }
