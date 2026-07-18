@@ -243,6 +243,48 @@ impl App {
             .map(|tab| tab.layout.pane_ids())
             .unwrap_or_default();
 
+        // tmux-style confirm-on-close: a single-pane tab close is a pane close,
+        // so give it the same running-process confirmation as pane close. This
+        // runs before the workspace-closing path so the last tab is covered too.
+        if self.state.confirm_close_running {
+            let single_pane_id = ws
+                .tabs
+                .get(tab_idx)
+                .filter(|tab| tab.layout.pane_count() == 1)
+                .map(|tab| tab.layout.focused());
+            if let Some(pane_id) = single_pane_id {
+                let running_command = self
+                    .state
+                    .terminal_id_for_pane(ws_idx, pane_id)
+                    .and_then(|terminal_id| self.state.terminals.get(&terminal_id))
+                    .and_then(|terminal| terminal.foreground_command.clone())
+                    .filter(|command| {
+                        super::panes::foreground_command_requires_close_confirmation(
+                            command,
+                            &self.state.default_shell,
+                        )
+                    });
+                if let Some(command) = running_command {
+                    self.state.selected = ws_idx;
+                    self.state.active = Some(ws_idx);
+                    if let Some(ws) = self.state.workspaces.get_mut(ws_idx) {
+                        ws.active_tab = tab_idx;
+                    }
+                    self.state.focus_pane_in_workspace(ws_idx, pane_id);
+                    self.state.pending_close = Some(crate::app::state::PendingClose {
+                        kind: crate::app::state::PendingCloseKind::Pane,
+                        running_command: Some(command),
+                    });
+                    self.state.mode = Mode::ConfirmClose;
+                    return encode_error(
+                        id,
+                        "confirmation_required",
+                        "closing this tab would terminate a running process",
+                    );
+                }
+            }
+        }
+
         if closes_workspace {
             if self.state.confirm_implicit_worktree_group_close(ws_idx) {
                 return encode_error(
