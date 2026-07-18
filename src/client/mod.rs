@@ -363,6 +363,9 @@ fn setup_terminal_with_capabilities(
             write_host_color_scheme_report_mode(&mut io::stdout(), true)?;
         }
         push_keyboard_enhancement_flags()?;
+        // Show the session name in the host window title from the start,
+        // before any server-driven title update arrives.
+        write_window_title(None);
     } else {
         if should_query_host_terminal_theme() {
             write_host_color_scheme_report_mode(&mut io::stdout(), false)?;
@@ -1944,8 +1947,12 @@ fn forward_clipboard(data: &str) {
     crate::selection::write_osc52_bytes(&bytes);
 }
 
-fn window_title_osc(title: Option<&str>) -> Vec<u8> {
+fn window_title_osc(session: Option<&str>, title: Option<&str>) -> Vec<u8> {
     let title = title.unwrap_or("herdr");
+    let title = match session {
+        Some(session) => format!("[{session}] {title}"),
+        None => title.to_string(),
+    };
     let safe_title = title
         .chars()
         .filter(|ch| !matches!(*ch, '\u{1b}' | '\u{7}' | '\u{9c}'))
@@ -1953,8 +1960,15 @@ fn window_title_osc(title: Option<&str>) -> Vec<u8> {
     format!("\x1b]0;{safe_title}\x07").into_bytes()
 }
 
+/// Session label shown in the host window title: the named session's name, or
+/// "default" for the default session.
+fn window_title_session_label() -> String {
+    crate::session::active_name().unwrap_or_else(|| "default".to_string())
+}
+
 fn write_window_title(title: Option<&str>) {
-    let _ = io::stdout().write_all(&window_title_osc(title));
+    let session = window_title_session_label();
+    let _ = io::stdout().write_all(&window_title_osc(Some(&session), title));
 }
 
 // ---------------------------------------------------------------------------
@@ -2944,9 +2958,18 @@ mod tests {
     #[test]
     fn window_title_osc_strips_terminators_and_defaults_to_herdr() {
         assert_eq!(
-            window_title_osc(Some("herdr\x1b api\u{7}\u{9c}")),
+            window_title_osc(None, Some("herdr\x1b api\u{7}\u{9c}")),
             b"\x1b]0;herdr api\x07"
         );
-        assert_eq!(window_title_osc(None), b"\x1b]0;herdr\x07");
+        assert_eq!(window_title_osc(None, None), b"\x1b]0;herdr\x07");
+    }
+
+    #[test]
+    fn window_title_osc_prefixes_session_name() {
+        assert_eq!(
+            window_title_osc(Some("work"), Some("task")),
+            b"\x1b]0;[work] task\x07"
+        );
+        assert_eq!(window_title_osc(Some("work"), None), b"\x1b]0;[work] herdr\x07");
     }
 }
