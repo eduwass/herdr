@@ -474,7 +474,7 @@ impl App {
             return false;
         };
         self.runtime_tab_close("tui.tab.close", tab_id);
-        false
+        self.state.mode == Mode::ConfirmClose
     }
 
     pub(crate) fn move_tab_via_api(

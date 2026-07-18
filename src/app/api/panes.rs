@@ -1912,7 +1912,10 @@ fn invalid_agent(id: String) -> String {
     encode_error(id, "invalid_agent", "agent label must not be empty")
 }
 
-fn foreground_command_requires_close_confirmation(command: &str, default_shell: &str) -> bool {
+pub(super) fn foreground_command_requires_close_confirmation(
+    command: &str,
+    default_shell: &str,
+) -> bool {
     let command = command_basename(command);
     if command.is_empty() {
         return false;
