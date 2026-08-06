@@ -671,6 +671,12 @@
           "description": "Hide the tab row when the workspace has one tab."
         },
         {
+          "key": "ui.tab_pills",
+          "type": "boolean",
+          "default": "false",
+          "description": "Render tab-bar tabs as pills with nerd-font half-circle end caps. Requires a font that covers U+E0B4/U+E0B6 (powerline extras)."
+        },
+        {
           "key": "ui.agent_panel_sort",
           "type": "enum",
           "default": "\"spaces\"",

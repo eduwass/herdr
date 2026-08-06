@@ -1,6 +1,7 @@
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
+    text::{Line, Span},
     widgets::Paragraph,
     Frame,
 };
@@ -12,6 +13,10 @@ use crate::app::AppState;
 const MIN_TAB_WIDTH: u16 = 8;
 const NEW_TAB_WIDTH: u16 = 3;
 const TAB_SCROLL_BUTTON_WIDTH: u16 = 3;
+// Nerd-font half circles (powerline extras) used as pill end caps when
+// `ui.tab_pills` is on; drawn as pill-colored foreground on the bar background.
+const LEFT_PILL_CAP: &str = "\u{e0b6}";
+const RIGHT_PILL_CAP: &str = "\u{e0b4}";
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct TabBarView {
@@ -338,8 +343,30 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         };
         let width = rect.width as usize;
         let name = tab_chrome_label(ws, idx);
-        let text = format!(" {:width$}", name, width = width.saturating_sub(1));
-        frame.render_widget(Paragraph::new(text).style(style), rect);
+        if app.tab_pills && width >= 3 {
+            let pill_bg = if active { p.accent } else { p.surface0 };
+            let cap_style = Style::default().fg(pill_bg).bg(p.panel_bg);
+            let inner = width - 2;
+            let mut label = super::text::truncate_end(
+                &format!(" {:w$}", name, w = inner.saturating_sub(1)),
+                inner,
+            );
+            label.extend(std::iter::repeat_n(
+                ' ',
+                inner.saturating_sub(super::text::display_width(&label)),
+            ));
+            frame.render_widget(
+                Paragraph::new(Line::from(vec![
+                    Span::styled(LEFT_PILL_CAP, cap_style),
+                    Span::styled(label, style),
+                    Span::styled(RIGHT_PILL_CAP, cap_style),
+                ])),
+                rect,
+            );
+        } else {
+            let text = format!(" {:width$}", name, width = width.saturating_sub(1));
+            frame.render_widget(Paragraph::new(text).style(style), rect);
+        }
     }
 
     if let Some(crate::app::state::DragState {
@@ -461,6 +488,47 @@ mod tests {
         assert_eq!(style.bg, Some(app.palette.accent));
         assert!(!style.add_modifier.contains(Modifier::DIM));
         assert!(!style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn tab_pills_render_half_circle_caps_at_tab_edges() {
+        let mut app = AppState::test_new();
+        app.tab_pills = true;
+        let mut ws = Workspace::test_new("test");
+        ws.test_add_tab(Some("second"));
+
+        app.workspaces = vec![ws];
+        app.active = Some(0);
+        app.view.tab_bar_rect = Rect::new(0, 0, 40, 1);
+        let view = compute_tab_bar_view(&app.workspaces[0], app.view.tab_bar_rect, 0, true, false);
+        app.view.tab_hit_areas = view.tab_hit_areas;
+
+        let backend = TestBackend::new(40, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_tab_bar(&app, frame, app.view.tab_bar_rect))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        for (idx, rect) in app.view.tab_hit_areas.iter().enumerate() {
+            let left = &buffer[(rect.x, rect.y)];
+            let right = &buffer[(rect.x + rect.width - 1, rect.y)];
+            let pill_bg = if idx == app.workspaces[0].active_tab {
+                app.palette.accent
+            } else {
+                app.palette.surface0
+            };
+            assert_eq!(left.symbol(), LEFT_PILL_CAP, "tab {idx} left cap");
+            assert_eq!(right.symbol(), RIGHT_PILL_CAP, "tab {idx} right cap");
+            assert_eq!(left.style().fg, Some(pill_bg), "tab {idx} cap color");
+            assert_eq!(
+                buffer[(rect.x + 2, rect.y)].style().bg,
+                Some(pill_bg),
+                "tab {idx} label bg"
+            );
+        }
+        let row = buffer_row_text(buffer, app.view.tab_bar_rect, 0);
+        assert!(row.contains("second"), "tab row: {row:?}");
     }
 
     #[test]

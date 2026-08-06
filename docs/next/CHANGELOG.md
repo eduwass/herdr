@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Added optional `ui.tab_pills` to render tab-bar tabs as pills with nerd-font half-circle end caps.
+
 ### Changed
 - Relicensed Herdr from AGPL-3.0-or-later to Apache-2.0.
 
