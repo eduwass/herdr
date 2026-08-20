@@ -3,10 +3,10 @@ use crate::api::schema::{
     PaneFocusDirectionParams, PaneInputSetParams, PaneLayoutParams, PaneListParams,
     PaneMoveDestination, PaneMoveParams, PaneNeighborParams, PaneProcessInfoParams, PaneReadParams,
     PaneReleaseAgentParams, PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
-    PaneReportMetadataParams, PaneResizeParams, PaneRightClickTarget, PaneSendInputParams,
-    PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneSwapParams, PaneTarget,
-    PaneWaitForOutputParams, PaneZoomMode, PaneZoomParams, ReadFormat, ReadSource, Request,
-    SplitDirection,
+    PaneReportMetadataParams, PaneResizeMode, PaneResizeParams, PaneRightClickTarget,
+    PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneSwapParams,
+    PaneTarget, PaneWaitForOutputParams, PaneZoomMode, PaneZoomParams, ReadFormat, ReadSource,
+    Request, SplitDirection,
 };
 
 pub(super) fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
@@ -308,6 +308,7 @@ fn parse_pane_focus_args(args: &[String]) -> Result<PaneFocusDirectionParams, St
 fn parse_pane_resize_args(args: &[String]) -> Result<PaneResizeParams, String> {
     let mut pane_id = None;
     let mut direction = None;
+    let mut mode = None;
     let mut amount = None;
 
     let mut index = 0;
@@ -328,8 +329,40 @@ fn parse_pane_resize_args(args: &[String]) -> Result<PaneResizeParams, String> {
                 let Some(value) = args.get(index + 1) else {
                     return Err("missing value for --direction".into());
                 };
+                if mode.is_some() {
+                    return Err(
+                        "provide only one of --direction, --grow, --shrink, or --reset".into(),
+                    );
+                }
                 direction = Some(parse_pane_direction(value)?);
                 index += 2;
+            }
+            "--grow" => {
+                if direction.is_some() || mode.is_some() {
+                    return Err(
+                        "provide only one of --direction, --grow, --shrink, or --reset".into(),
+                    );
+                }
+                mode = Some(PaneResizeMode::Grow);
+                index += 1;
+            }
+            "--shrink" => {
+                if direction.is_some() || mode.is_some() {
+                    return Err(
+                        "provide only one of --direction, --grow, --shrink, or --reset".into(),
+                    );
+                }
+                mode = Some(PaneResizeMode::Shrink);
+                index += 1;
+            }
+            "--reset" => {
+                if direction.is_some() || mode.is_some() {
+                    return Err(
+                        "provide only one of --direction, --grow, --shrink, or --reset".into(),
+                    );
+                }
+                mode = Some(PaneResizeMode::Reset);
+                index += 1;
             }
             "--amount" => {
                 let Some(value) = args.get(index + 1) else {
@@ -348,16 +381,17 @@ fn parse_pane_resize_args(args: &[String]) -> Result<PaneResizeParams, String> {
         }
     }
 
-    let Some(direction) = direction else {
+    if direction.is_none() && mode.is_none() {
         return Err(
-            "usage: herdr pane resize --direction left|right|up|down [--amount FLOAT] [--pane ID|--current]"
+            "usage: herdr pane resize (--direction left|right|up|down|--grow|--shrink|--reset) [--amount FLOAT] [--pane ID|--current]"
                 .into(),
         );
-    };
+    }
 
     Ok(PaneResizeParams {
         pane_id,
         direction,
+        mode,
         amount,
     })
 }
@@ -1696,7 +1730,7 @@ fn print_pane_help() {
     eprintln!("  herdr pane edges [--pane ID|--current]");
     eprintln!("  herdr pane focus --direction left|right|up|down [--pane ID|--current]");
     eprintln!(
-        "  herdr pane resize --direction left|right|up|down [--amount FLOAT] [--pane ID|--current]"
+        "  herdr pane resize (--direction left|right|up|down|--grow|--shrink|--reset) [--amount FLOAT] [--pane ID|--current]"
     );
     eprintln!("  herdr pane zoom [<pane_id>|--pane ID|--current] [--toggle|--on|--off]");
     eprintln!("  herdr pane rename <pane_id> <label>|--clear");
@@ -2097,7 +2131,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(params.pane_id, Some("issue-2".into()));
-        assert_eq!(params.direction, PaneDirection::Left);
+        assert_eq!(params.direction, Some(PaneDirection::Left));
+        assert_eq!(params.mode, None);
         assert_eq!(params.amount, Some(0.125));
     }
 
@@ -2185,5 +2220,29 @@ mod tests {
         let err = parse_pane_wait_output_args(&args(&["issue-1", "--match", "a", "--regex", "b"]))
             .unwrap_err();
         assert!(err.contains("mutually exclusive"));
+    }
+
+    #[test]
+    fn parse_pane_resize_args_accepts_grow_and_current() {
+        let params = parse_pane_resize_args(&args(&["--grow", "--current"])).unwrap();
+
+        assert_eq!(params.pane_id, None);
+        assert_eq!(params.direction, None);
+        assert_eq!(params.mode, Some(PaneResizeMode::Grow));
+    }
+
+    #[test]
+    fn parse_pane_resize_args_rejects_direction_and_grow() {
+        let err = parse_pane_resize_args(&args(&["--direction", "right", "--grow"])).unwrap_err();
+
+        assert!(err.contains("provide only one"));
+    }
+
+    #[test]
+    fn parse_pane_resize_args_accepts_reset() {
+        let params = parse_pane_resize_args(&args(&["--reset"])).unwrap();
+
+        assert_eq!(params.direction, None);
+        assert_eq!(params.mode, Some(PaneResizeMode::Reset));
     }
 }

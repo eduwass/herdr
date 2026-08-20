@@ -4041,7 +4041,8 @@ mod tests {
             id: "req_8".into(),
             method: crate::api::schema::Method::PaneResize(crate::api::schema::PaneResizeParams {
                 pane_id: Some("w1:p1".into()),
-                direction: crate::api::schema::PaneDirection::Right,
+                direction: Some(crate::api::schema::PaneDirection::Right),
+                mode: None,
                 amount: Some(0.05),
             }),
         };

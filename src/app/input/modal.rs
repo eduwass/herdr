@@ -1298,7 +1298,8 @@ impl App {
                 "tui.pane.resize",
                 crate::api::schema::PaneResizeParams {
                     pane_id: None,
-                    direction: super::navigate::api_pane_direction(direction),
+                    direction: Some(super::navigate::api_pane_direction(direction)),
+                    mode: None,
                     amount: None,
                 },
             );
