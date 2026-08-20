@@ -1,7 +1,7 @@
 use crate::api::schema::{
     EmptyParams, LayoutSetSplitRatioParams, Method, PaneFocusDirectionParams, PaneInputSetParams,
-    PaneMoveParams, PaneRenameParams, PaneResizeParams, PaneSplitParams, PaneSwapParams, PaneTarget,
-    PaneZoomParams, TabCreateParams, TabMoveParams, TabRenameParams, TabTarget,
+    PaneMoveParams, PaneRenameParams, PaneResizeParams, PaneSplitParams, PaneSwapParams,
+    PaneTarget, PaneZoomParams, TabCreateParams, TabMoveParams, TabRenameParams, TabTarget,
     WorkspaceCreateParams, WorkspaceMoveBlockParams, WorkspaceMoveParams, WorkspaceRenameParams,
     WorkspaceTarget, WorktreeCreateParams, WorktreeOpenParams, WorktreeRemoveParams,
 };

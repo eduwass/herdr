@@ -713,12 +713,6 @@
           "description": "Ask for confirmation before closing a pane that has a non-shell foreground process running."
         },
         {
-          "key": "ui.hide_outer_pane_borders",
-          "type": "boolean",
-          "default": "false",
-          "description": "Hide the outer rectangle around the pane layout; keep only split borders between panes."
-        },
-        {
           "key": "ui.pane_border_shows_osc_title",
           "type": "boolean",
           "default": "false",

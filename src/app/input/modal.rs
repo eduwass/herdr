@@ -3,7 +3,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Direction;
 use ratatui::layout::Rect;
 #[cfg(test)]
-use std::sync::{atomic::AtomicBool, Arc};
+use std::sync::Arc;
 #[cfg(test)]
 use tokio::sync::{mpsc, Notify};
 
@@ -1028,7 +1028,7 @@ pub(super) fn apply_context_menu_action(
                         label,
                         fallback_tx,
                         Arc::new(Notify::new()),
-                        Arc::new(AtomicBool::new(false)),
+                        Arc::new(crate::render_signal::RenderSignal::new()),
                     );
                     state.switch_tab(tab_idx);
                     state.focus_pane_in_workspace(ws_idx, pane_id);
@@ -1298,8 +1298,7 @@ impl App {
                 "tui.pane.resize",
                 crate::api::schema::PaneResizeParams {
                     pane_id: None,
-                    direction: Some(super::navigate::api_pane_direction(direction)),
-                    mode: None,
+                    direction: super::navigate::api_pane_direction(direction),
                     amount: None,
                 },
             );
@@ -2458,6 +2457,7 @@ mod tests {
                 source_pane_id: None,
                 has_manual_label: false,
                 can_move_to_new_tab: true,
+                right_click_passthrough: false,
             },
             x: 0,
             y: 0,
@@ -2502,6 +2502,7 @@ mod tests {
                 source_pane_id: None,
                 has_manual_label: false,
                 can_move_to_new_tab: true,
+                right_click_passthrough: false,
             },
             x: 0,
             y: 0,
@@ -2635,6 +2636,7 @@ mod tests {
                 source_pane_id: None,
                 has_manual_label: false,
                 right_click_passthrough: false,
+                can_move_to_new_tab: false,
             },
             x: 0,
             y: 0,
@@ -2795,6 +2797,7 @@ mod tests {
                 source_pane_id: None,
                 has_manual_label: false,
                 can_move_to_new_tab: false,
+                right_click_passthrough: false,
             },
             x: 0,
             y: 0,
@@ -2832,6 +2835,7 @@ mod tests {
                 source_pane_id: None,
                 has_manual_label: false,
                 can_move_to_new_tab: true,
+                right_click_passthrough: false,
             },
             x: 0,
             y: 0,

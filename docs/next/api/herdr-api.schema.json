@@ -2980,14 +2980,6 @@
           ],
           "type": "object"
         },
-        "PaneResizeMode": {
-          "enum": [
-            "grow",
-            "shrink",
-            "reset"
-          ],
-          "type": "string"
-        },
         "PaneResizeParams": {
           "properties": {
             "amount": {
@@ -2998,24 +2990,7 @@
               ]
             },
             "direction": {
-              "anyOf": [
-                {
-                  "$ref": "#/schemas/request/$defs/PaneDirection"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "mode": {
-              "anyOf": [
-                {
-                  "$ref": "#/schemas/request/$defs/PaneResizeMode"
-                },
-                {
-                  "type": "null"
-                }
-              ]
+              "$ref": "#/schemas/request/$defs/PaneDirection"
             },
             "pane_id": {
               "type": [
@@ -3024,6 +2999,9 @@
               ]
             }
           },
+          "required": [
+            "direction"
+          ],
           "type": "object"
         },
         "PaneRightClickTarget": {

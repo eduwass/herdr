@@ -213,12 +213,12 @@ impl App {
                 if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
                     if terminal.agent_osc_title != osc_title {
                         terminal.agent_osc_title = osc_title;
-                        self.render_dirty.store(true, Ordering::Release);
+                        self.render_dirty.request_generic();
                         self.render_notify.notify_one();
                     }
                 }
             }
-            return;
+            return Vec::new();
         }
 
         if let AppEvent::PaneDied { pane_id } = &ev {

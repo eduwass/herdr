@@ -304,7 +304,9 @@ mod tests {
         assert_eq!(frame.hyperlinks, vec![uri.to_owned()]);
         assert_eq!(
             frame_digest(&frame),
-            "a7c21fa42305a41231c7ae254f264f6ef923f46301d8fc4cd35ab6dfdd651b6b"
+            // Fork: differs from upstream's digest because the sidebar reserves a
+            // header row for the session name (see sidebar_header_label).
+            "21cb9a606181244b5be7a0958c5292797531a895b6ca65dd75a7e22b0f6c9930"
         );
     }
 

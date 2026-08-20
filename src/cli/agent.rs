@@ -944,15 +944,18 @@ fn parse_timeout(value: &str) -> Result<u64, i32> {
     })
 }
 
+/// Refuse an agent action aimed at the pane this CLI is running in.
+///
+/// Compares the target against `HERDR_PANE_ID` locally instead of resolving it
+/// server-side: upstream requires `agent prompt` to be exactly one request
+/// (tests/cli/agent_transport.rs), so a resolve round-trip here is not allowed.
+/// The cost is that a self-target expressed as an agent name rather than a pane
+/// id is not caught; the destructive paths (pane/tab close) work off pane ids
+/// and keep full coverage.
 fn refuse_self_targeted_agent_action(
     target: &str,
     action: &str,
-    request_id: &str,
+    _request_id: &str,
 ) -> std::io::Result<Option<i32>> {
-    let response = resolve_agent_target(target, request_id)?;
-    if response.get("error").is_some() {
-        return super::print_response(&response).map(Some);
-    }
-    let pane_id = response["result"]["agent"]["pane_id"].as_str();
-    Ok(pane_id.and_then(|pane_id| super::pane::refuse_self_target(pane_id, action)))
+    Ok(super::pane::refuse_self_target(target, action))
 }
