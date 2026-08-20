@@ -171,7 +171,20 @@ fn tab_close(args: &[String]) -> std::io::Result<i32> {
         return Ok(2);
     }
 
-    super::runtime::tab_close(super::normalize_tab_id(raw_tab_id))
+    let tab_id = super::normalize_tab_id(raw_tab_id);
+    if let Some(exit_code) = super::pane::refuse_self_target_in_context(
+        &tab_id,
+        "close",
+        "tab",
+        "tabs",
+        "HERDR_TAB_ID",
+        "cli:tab:close",
+        super::normalize_tab_id,
+    ) {
+        return Ok(exit_code);
+    }
+
+    super::runtime::tab_close(tab_id)
 }
 
 fn print_tab_help() {
