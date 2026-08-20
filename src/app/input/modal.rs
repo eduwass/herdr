@@ -743,20 +743,25 @@ pub(super) fn open_confirm_close(state: &mut AppState) {
 #[cfg(test)]
 pub(super) fn confirm_close_accept(state: &mut AppState) {
     use crate::app::state::PendingCloseKind;
-    // Default to the worktree-group workspace close to preserve historical
-    // behavior when no descriptor was set (e.g. older entry paths).
-    let kind = state
-        .pending_close
-        .take()
-        .map(|pending| pending.kind)
-        .unwrap_or(PendingCloseKind::Workspace);
-    match kind {
-        PendingCloseKind::Pane => {
-            state.close_pane_immediate();
+    let pending = state.pending_close.take();
+    match pending {
+        Some(crate::app::state::PendingClose {
+            kind: PendingCloseKind::Pane,
+            pane_target: Some(target),
+            ..
+        }) => {
+            state.close_pane_immediate_target(&target);
         }
-        PendingCloseKind::Workspace => {
-            state.close_selected_workspace();
-        }
+        Some(crate::app::state::PendingClose {
+            kind: PendingCloseKind::Workspace,
+            ..
+        })
+        | None => state.close_selected_workspace(),
+        Some(crate::app::state::PendingClose {
+            kind: PendingCloseKind::Pane,
+            pane_target: None,
+            ..
+        }) => {}
     }
     if state.workspaces.is_empty() {
         state.mode = Mode::Navigate;
@@ -870,8 +875,13 @@ pub(super) fn apply_context_menu_action(
                         .terminal_id_for_pane(ws_idx, pane_id)
                         .and_then(|terminal_id| state.terminals.get(&terminal_id))
                         .and_then(|terminal| terminal.foreground_command.clone());
+                    let Some(pane_target) = state.pending_close_pane_target(ws_idx, pane_id) else {
+                        leave_modal(state);
+                        return;
+                    };
                     state.pending_close = Some(crate::app::state::PendingClose {
                         kind: crate::app::state::PendingCloseKind::Pane,
+                        pane_target: Some(pane_target),
                         running_command,
                     });
                     state.mode = Mode::ConfirmClose;
@@ -1051,8 +1061,13 @@ pub(super) fn apply_context_menu_action(
                     .terminal_id_for_pane(ws_idx, pane_id)
                     .and_then(|terminal_id| state.terminals.get(&terminal_id))
                     .and_then(|terminal| terminal.foreground_command.clone());
+                let Some(pane_target) = state.pending_close_pane_target(ws_idx, pane_id) else {
+                    leave_modal(state);
+                    return;
+                };
                 state.pending_close = Some(crate::app::state::PendingClose {
                     kind: crate::app::state::PendingCloseKind::Pane,
+                    pane_target: Some(pane_target),
                     running_command,
                 });
                 state.mode = Mode::ConfirmClose;
@@ -1220,22 +1235,34 @@ impl App {
     pub(super) fn confirm_close_accept_via_api(&mut self) {
         use crate::app::state::PendingCloseKind;
 
-        let kind = self
-            .state
-            .pending_close
-            .take()
-            .map(|pending| pending.kind)
-            .unwrap_or(PendingCloseKind::Workspace);
-        match kind {
-            PendingCloseKind::Pane => {
-                self.state.close_pane_immediate();
+        let pending = self.state.pending_close.take();
+        match pending {
+            Some(crate::app::state::PendingClose {
+                kind: PendingCloseKind::Pane,
+                pane_target: Some(target),
+                ..
+            }) => {
+                if let Some((ws_idx, _tab_idx)) =
+                    self.state.pane_focus_target_indices(&target.focus_target)
+                {
+                    self.close_pane_immediate_via_api(ws_idx, target.focus_target.pane_id);
+                }
             }
-            PendingCloseKind::Workspace => {
+            Some(crate::app::state::PendingClose {
+                kind: PendingCloseKind::Workspace,
+                ..
+            })
+            | None => {
                 let ws_idx = self.state.selected;
                 if ws_idx < self.state.workspaces.len() {
                     self.close_workspace_idx_via_api(ws_idx);
                 }
             }
+            Some(crate::app::state::PendingClose {
+                kind: PendingCloseKind::Pane,
+                pane_target: None,
+                ..
+            }) => {}
         }
         self.state.mode = if self.state.active.is_some() {
             Mode::Terminal
@@ -2337,11 +2364,15 @@ mod tests {
     fn confirm_close_accept_closes_pane_not_workspace_for_pane_kind() {
         use ratatui::layout::Direction;
         let mut state = state_with_workspaces(&["test"]);
-        state.workspaces[0].test_split(Direction::Horizontal);
+        let focused_pane = state.workspaces[0].tabs[0].root_pane;
+        let other_pane = state.workspaces[0].test_split(Direction::Horizontal);
         state.ensure_test_terminals();
+        state.workspaces[0].tabs[0].layout.focus_pane(focused_pane);
         state.mode = Mode::ConfirmClose;
+        let pane_target = state.pending_close_pane_target(0, focused_pane).unwrap();
         state.pending_close = Some(crate::app::state::PendingClose {
             kind: crate::app::state::PendingCloseKind::Pane,
+            pane_target: Some(pane_target),
             running_command: Some("claude".into()),
         });
 
@@ -2349,8 +2380,67 @@ mod tests {
 
         assert_eq!(state.workspaces.len(), 1, "workspace must survive");
         assert_eq!(state.workspaces[0].panes.len(), 1, "only the pane closes");
+        assert!(!state.workspaces[0].panes.contains_key(&focused_pane));
+        assert!(state.workspaces[0].panes.contains_key(&other_pane));
         assert!(state.pending_close.is_none());
         assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn confirm_close_accept_is_noop_when_target_pane_is_already_gone() {
+        use ratatui::layout::Direction;
+        let mut state = state_with_workspaces(&["test"]);
+        let focused_pane = state.workspaces[0].tabs[0].root_pane;
+        let target_pane = state.workspaces[0].test_split(Direction::Horizontal);
+        state.ensure_test_terminals();
+        state.workspaces[0].tabs[0].layout.focus_pane(focused_pane);
+        let pane_target = state.pending_close_pane_target(0, target_pane).unwrap();
+        assert!(state.close_pane_immediate_target(&pane_target));
+        state.mode = Mode::ConfirmClose;
+        state.pending_close = Some(crate::app::state::PendingClose {
+            kind: crate::app::state::PendingCloseKind::Pane,
+            pane_target: Some(pane_target),
+            running_command: Some("claude".into()),
+        });
+
+        confirm_close_accept(&mut state);
+
+        assert_eq!(state.mode, Mode::Terminal);
+        assert_eq!(state.workspaces.len(), 1);
+        assert_eq!(state.workspaces[0].panes.len(), 1);
+        assert!(state.workspaces[0].panes.contains_key(&focused_pane));
+        assert!(state.pending_close.is_none());
+    }
+
+    #[test]
+    fn confirm_close_accept_via_api_is_noop_when_target_pane_is_already_gone() {
+        use ratatui::layout::Direction;
+        let mut app = app_with_test_workspaces(&["test"]);
+        let focused_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let target_pane = app.state.workspaces[0].test_split(Direction::Horizontal);
+        app.state.ensure_test_terminals();
+        app.state.workspaces[0].tabs[0]
+            .layout
+            .focus_pane(focused_pane);
+        let pane_target = app.state.pending_close_pane_target(0, target_pane).unwrap();
+        assert!(app.state.close_pane_immediate_target(&pane_target));
+        app.state.mode = Mode::ConfirmClose;
+        app.state.pending_close = Some(crate::app::state::PendingClose {
+            kind: crate::app::state::PendingCloseKind::Pane,
+            pane_target: Some(pane_target),
+            running_command: Some("claude".into()),
+        });
+
+        app.confirm_close_accept_via_api();
+
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(app.state.workspaces.len(), 1);
+        assert_eq!(app.state.workspaces[0].panes.len(), 1);
+        assert_eq!(
+            app.state.workspaces[0].focused_pane_id(),
+            Some(focused_pane)
+        );
+        assert!(app.state.pending_close.is_none());
     }
 
     #[test]

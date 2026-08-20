@@ -853,15 +853,23 @@ pub enum Mode {
 /// to render in the prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum PendingCloseKind {
-    /// Close the focused pane (running-process confirmation).
+    /// Close the recorded pane target (running-process confirmation).
     Pane,
     /// Close the selected workspace / worktree group.
     Workspace,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PendingClosePaneTarget {
+    pub focus_target: PaneFocusTarget,
+    pub public_pane_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PendingClose {
     pub kind: PendingCloseKind,
+    /// Pane to close for `PendingCloseKind::Pane`.
+    pub pane_target: Option<PendingClosePaneTarget>,
     /// Foreground command name for the running-process prompt, if any.
     pub running_command: Option<String>,
 }

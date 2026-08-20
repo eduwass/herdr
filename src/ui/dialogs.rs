@@ -624,9 +624,14 @@ fn confirm_close_overlay_text(
     if let Some(pending) = &app.pending_close {
         if let crate::app::state::PendingCloseKind::Pane = pending.kind {
             let cmd = pending.running_command.as_deref().unwrap_or("process");
+            let pane_id = pending
+                .pane_target
+                .as_ref()
+                .map(|target| target.public_pane_id.as_str())
+                .unwrap_or("pane");
             return (
-                format!("kill pane running {cmd}?"),
-                "This pane has a running process.".to_string(),
+                format!("kill pane {pane_id} running {cmd}?"),
+                format!("Pane {pane_id} has a running process."),
             );
         }
     }
@@ -1169,15 +1174,30 @@ mod tests {
     #[test]
     fn confirm_close_text_shows_running_command_for_pane_kind() {
         let mut app = AppState::test_new();
-        app.workspaces = vec![Workspace::test_new("main")];
+        let workspace = Workspace::test_new("main");
+        let pane_id = workspace.tabs[0].root_pane;
+        let public_pane_id = crate::workspace::public_pane_id_for_number(&workspace.id, 1);
+        app.workspaces = vec![workspace];
         app.selected = 0;
         app.pending_close = Some(crate::app::state::PendingClose {
             kind: crate::app::state::PendingCloseKind::Pane,
+            pane_target: Some(crate::app::state::PendingClosePaneTarget {
+                focus_target: crate::app::state::PaneFocusTarget {
+                    workspace_id: app.workspaces[0].id.clone(),
+                    pane_id,
+                },
+                public_pane_id: public_pane_id.clone(),
+            }),
             running_command: Some("claude".into()),
         });
 
-        let (title, _detail) = confirm_close_overlay_text(&app);
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let (title, detail) = confirm_close_overlay_text(&app, &terminal_runtimes);
 
-        assert_eq!(title, "kill pane running claude?");
+        assert_eq!(title, format!("kill pane {public_pane_id} running claude?"));
+        assert_eq!(
+            detail,
+            format!("Pane {public_pane_id} has a running process.")
+        );
     }
 }

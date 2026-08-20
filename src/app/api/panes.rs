@@ -28,6 +28,60 @@ use super::super::api_helpers::{METADATA_SOURCE_MAX_CHARS, METADATA_TTL_MAX_MS};
 use super::responses::{encode_error, encode_success};
 
 impl App {
+    pub(crate) fn close_pane_immediate_via_api(&mut self, ws_idx: usize, pane_id: PaneId) -> bool {
+        let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            return false;
+        };
+        let workspace_id = self.public_workspace_id(ws_idx);
+        let layout_update_target = self.layout_update_target_after_pane_removal(ws_idx, pane_id);
+        let workspace_snapshot = self.workspace_info(ws_idx);
+        let terminal_id = self.state.terminal_id_for_pane(ws_idx, pane_id);
+        let should_close_workspace = {
+            let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
+                return false;
+            };
+            if ws.find_tab_index_for_pane(pane_id).is_none() {
+                return false;
+            }
+            ws.close_pane(pane_id)
+        };
+        self.state.remove_plugin_pane_records([pane_id]);
+        if should_close_workspace {
+            self.state.selected = ws_idx;
+            self.state.close_selected_workspace();
+            self.shutdown_detached_terminal_runtimes();
+            self.emit_event(EventEnvelope {
+                event: EventKind::PaneClosed,
+                data: EventData::PaneClosed {
+                    pane_id: public_pane_id,
+                    workspace_id: workspace_id.clone(),
+                },
+            });
+            self.emit_event(EventEnvelope {
+                event: EventKind::WorkspaceClosed,
+                data: EventData::WorkspaceClosed {
+                    workspace_id,
+                    workspace: Some(workspace_snapshot),
+                },
+            });
+        } else {
+            self.state.remove_unattached_terminal_ids(terminal_id);
+            self.shutdown_detached_terminal_runtimes();
+            self.schedule_session_save();
+            self.emit_event(EventEnvelope {
+                event: EventKind::PaneClosed,
+                data: EventData::PaneClosed {
+                    pane_id: public_pane_id,
+                    workspace_id,
+                },
+            });
+            if let Some((ws_idx, tab_idx)) = layout_update_target {
+                self.emit_layout_updated_event(ws_idx, tab_idx);
+            }
+        }
+        true
+    }
+
     pub(super) fn handle_pane_split(&mut self, id: String, params: PaneSplitParams) -> String {
         let target = if let Some(target_pane_id) = params.target_pane_id.as_deref() {
             self.parse_pane_id(target_pane_id)
@@ -1553,11 +1607,6 @@ impl App {
         let Some((ws_idx, pane_id)) = self.parse_pane_id(&target.pane_id) else {
             return Err(pane_not_found(id, &target.pane_id));
         };
-        let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
-            return Err(pane_not_found(id, &target.pane_id));
-        };
-        let workspace_id = self.public_workspace_id(ws_idx);
-        let layout_update_target = self.layout_update_target_after_pane_removal(ws_idx, pane_id);
         if self.state.close_pane_would_close_workspace(ws_idx, pane_id)
             && self.state.confirm_implicit_worktree_group_close(ws_idx)
         {
@@ -1580,8 +1629,13 @@ impl App {
                     )
                 })
             {
+                let Some(pane_target) = self.state.pending_close_pane_target(ws_idx, pane_id)
+                else {
+                    return Err(pane_not_found(id, &target.pane_id));
+                };
                 self.state.pending_close = Some(crate::app::state::PendingClose {
                     kind: crate::app::state::PendingCloseKind::Pane,
+                    pane_target: Some(pane_target),
                     running_command: Some(command),
                 });
                 self.state.mode = Mode::ConfirmClose;
@@ -1592,47 +1646,8 @@ impl App {
                 ));
             }
         }
-        let workspace_snapshot = self.workspace_info(ws_idx);
-        let terminal_id = self.state.terminal_id_for_pane(ws_idx, pane_id);
-        let should_close_workspace = {
-            let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
-                return Err(pane_not_found(id, &target.pane_id));
-            };
-            ws.close_pane(pane_id)
-        };
-        self.state.remove_plugin_pane_records([pane_id]);
-        if should_close_workspace {
-            self.state.selected = ws_idx;
-            self.state.close_selected_workspace();
-            self.shutdown_detached_terminal_runtimes();
-            self.emit_event(EventEnvelope {
-                event: EventKind::PaneClosed,
-                data: EventData::PaneClosed {
-                    pane_id: public_pane_id,
-                    workspace_id: workspace_id.clone(),
-                },
-            });
-            self.emit_event(EventEnvelope {
-                event: EventKind::WorkspaceClosed,
-                data: EventData::WorkspaceClosed {
-                    workspace_id,
-                    workspace: Some(workspace_snapshot),
-                },
-            });
-        } else {
-            self.state.remove_unattached_terminal_ids(terminal_id);
-            self.shutdown_detached_terminal_runtimes();
-            self.schedule_session_save();
-            self.emit_event(EventEnvelope {
-                event: EventKind::PaneClosed,
-                data: EventData::PaneClosed {
-                    pane_id: public_pane_id,
-                    workspace_id,
-                },
-            });
-            if let Some((ws_idx, tab_idx)) = layout_update_target {
-                self.emit_layout_updated_event(ws_idx, tab_idx);
-            }
+        if !self.close_pane_immediate_via_api(ws_idx, pane_id) {
+            return Err(pane_not_found(id, &target.pane_id));
         }
 
         Ok(())
@@ -1965,6 +1980,7 @@ mod tests {
         detect::{Agent, AgentState},
         workspace::Workspace,
     };
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     fn app_with_test_workspace() -> (App, String) {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -2357,7 +2373,7 @@ mod tests {
         let response = app.handle_pane_close(
             "req".into(),
             PaneTarget {
-                pane_id: public_pane_id,
+                pane_id: public_pane_id.clone(),
             },
         );
 
@@ -2386,7 +2402,7 @@ mod tests {
         let response = app.handle_pane_close(
             "req".into(),
             PaneTarget {
-                pane_id: public_pane_id,
+                pane_id: public_pane_id.clone(),
             },
         );
 
@@ -2414,7 +2430,7 @@ mod tests {
         let response = app.handle_pane_close(
             "req".into(),
             PaneTarget {
-                pane_id: public_pane_id,
+                pane_id: public_pane_id.clone(),
             },
         );
 
@@ -2425,7 +2441,57 @@ mod tests {
             app.state.pending_close.as_ref().unwrap().kind,
             crate::app::state::PendingCloseKind::Pane
         );
+        assert_eq!(
+            app.state
+                .pending_close
+                .as_ref()
+                .and_then(|pending| pending.pane_target.as_ref())
+                .map(|target| target.public_pane_id.as_str()),
+            Some(public_pane_id.as_str())
+        );
         assert_eq!(app.state.workspaces.len(), 1);
+    }
+
+    #[test]
+    fn api_confirm_close_accept_closes_requested_non_focused_pane() {
+        let (mut app, root_public_pane_id) = app_with_test_workspace();
+        app.state.confirm_close_running = true;
+        let root_pane = app.state.workspaces[0].tabs[0].root_pane;
+        let target_pane =
+            app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        app.state.ensure_test_terminals();
+        app.state.workspaces[0].tabs[0].layout.focus_pane(root_pane);
+        let target_public_pane_id = app.public_pane_id(0, target_pane).unwrap();
+        let terminal_id = app.state.workspaces[0]
+            .terminal_id(target_pane)
+            .cloned()
+            .unwrap();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .foreground_command = Some("claude".into());
+
+        let response = app.handle_pane_close(
+            "req".into(),
+            PaneTarget {
+                pane_id: target_public_pane_id.clone(),
+            },
+        );
+
+        let error: ErrorResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(error.error.code, "confirmation_required");
+        app.handle_confirm_close_key_via_api(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        assert_eq!(app.state.workspaces.len(), 1);
+        assert_eq!(app.state.workspaces[0].panes.len(), 1);
+        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(root_pane));
+        assert!(app.state.workspaces[0].pane_state(root_pane).is_some());
+        assert!(app.state.workspaces[0].pane_state(target_pane).is_none());
+        assert_eq!(
+            app.public_pane_id(0, root_pane).as_deref(),
+            Some(root_public_pane_id.as_str())
+        );
     }
 
     #[test]

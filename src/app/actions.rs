@@ -282,6 +282,22 @@ impl AppState {
         Some((ws_idx, tab_idx))
     }
 
+    pub(crate) fn pending_close_pane_target(
+        &self,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) -> Option<crate::app::state::PendingClosePaneTarget> {
+        let ws = self.workspaces.get(ws_idx)?;
+        let pane_number = ws.public_pane_number(pane_id)?;
+        Some(crate::app::state::PendingClosePaneTarget {
+            focus_target: PaneFocusTarget {
+                workspace_id: ws.id.clone(),
+                pane_id,
+            },
+            public_pane_id: crate::workspace::public_pane_id_for_number(&ws.id, pane_number),
+        })
+    }
+
     pub(crate) fn record_pane_focus_change(
         &mut self,
         previous: Option<PaneFocusTarget>,
@@ -2006,6 +2022,7 @@ impl AppState {
             self.selected = ws_idx;
             self.pending_close = Some(crate::app::state::PendingClose {
                 kind: crate::app::state::PendingCloseKind::Workspace,
+                pane_target: None,
                 running_command: None,
             });
             self.mode = Mode::ConfirmClose;
@@ -2037,8 +2054,22 @@ impl AppState {
         let Some(command) = self.focused_pane_foreground_command() else {
             return false;
         };
+        let Some(ws_idx) = self.active else {
+            return false;
+        };
+        let Some(pane_id) = self
+            .workspaces
+            .get(ws_idx)
+            .and_then(|ws| ws.focused_pane_id())
+        else {
+            return false;
+        };
+        let Some(pane_target) = self.pending_close_pane_target(ws_idx, pane_id) else {
+            return false;
+        };
         self.pending_close = Some(crate::app::state::PendingClose {
             kind: crate::app::state::PendingCloseKind::Pane,
+            pane_target: Some(pane_target),
             running_command: Some(command),
         });
         self.mode = Mode::ConfirmClose;
@@ -2082,7 +2113,15 @@ impl AppState {
         if self.confirm_close_running_pane() {
             return true;
         }
+        self.close_pane_immediate();
+        false
+    }
 
+    #[cfg(test)]
+    /// Close the focused pane without any confirmation checks. Used by
+    /// `close_pane` after confirmation gates pass in tests.
+    pub(crate) fn close_pane_immediate(&mut self) {
+        let active = self.active;
         self.selection = None;
         self.selection_autoscroll = None;
         self.mark_session_dirty();
@@ -2111,45 +2150,38 @@ impl AppState {
         } else {
             self.remove_unattached_terminal_ids(terminal_ids);
         }
-        false
     }
 
-    /// Close the focused pane without any confirmation checks. Used by
-    /// `close_pane` after confirmation gates pass, and by the confirmation
-    /// modal's accept handler for the running-process case.
-    pub(crate) fn close_pane_immediate(&mut self) {
-        let active = self.active;
+    #[cfg(test)]
+    pub(crate) fn close_pane_immediate_target(
+        &mut self,
+        target: &crate::app::state::PendingClosePaneTarget,
+    ) -> bool {
+        let Some((ws_idx, _tab_idx)) = self.pane_focus_target_indices(&target.focus_target) else {
+            return false;
+        };
+        let pane_id = target.focus_target.pane_id;
         self.selection = None;
         self.selection_autoscroll = None;
         self.mark_session_dirty();
-        let terminal_ids = active
-            .and_then(|i| {
-                self.workspaces
-                    .get(i)
-                    .and_then(|ws| ws.focused_pane_id().map(|pane_id| (i, pane_id)))
-            })
-            .and_then(|(i, pane_id)| self.terminal_id_for_pane(i, pane_id))
+        let terminal_ids = self
+            .terminal_id_for_pane(ws_idx, pane_id)
             .into_iter()
             .collect::<Vec<_>>();
-        let pane_ids = active
-            .and_then(|i| self.workspaces.get(i).and_then(|ws| ws.focused_pane_id()))
-            .into_iter()
-            .collect::<Vec<_>>();
-        let should_close_workspace = active
-            .and_then(|i| {
-                let pane_id = self.workspaces.get(i)?.focused_pane_id()?;
-                self.workspaces.get_mut(i).map(|ws| ws.remove_pane(pane_id))
-            })
+        let pane_ids = vec![pane_id];
+        let should_close_workspace = self
+            .workspaces
+            .get_mut(ws_idx)
+            .map(|ws| ws.remove_pane(pane_id))
             .unwrap_or(false);
         self.remove_plugin_pane_records(pane_ids);
         if should_close_workspace {
-            if let Some(active) = active {
-                self.selected = active;
-            }
+            self.selected = ws_idx;
             self.close_selected_workspace();
         } else {
             self.remove_unattached_terminal_ids(terminal_ids);
         }
+        true
     }
 
     #[cfg(test)]

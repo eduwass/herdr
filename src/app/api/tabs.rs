@@ -271,8 +271,13 @@ impl App {
                         ws.active_tab = tab_idx;
                     }
                     self.state.focus_pane_in_workspace(ws_idx, pane_id);
+                    let Some(pane_target) = self.state.pending_close_pane_target(ws_idx, pane_id)
+                    else {
+                        return tab_not_found(id, &target.tab_id);
+                    };
                     self.state.pending_close = Some(crate::app::state::PendingClose {
                         kind: crate::app::state::PendingCloseKind::Pane,
+                        pane_target: Some(pane_target),
                         running_command: Some(command),
                     });
                     self.state.mode = Mode::ConfirmClose;
