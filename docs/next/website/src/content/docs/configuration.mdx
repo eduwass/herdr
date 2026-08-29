@@ -312,7 +312,7 @@ Herdr emulates the terminals in its panes, so an `OSC 0`/`OSC 2` title written i
 window_title = "{hostname}: {workspace}"
 ```
 
-Tokens are `{hostname}`, `{workspace}`, `{tab}`, `{pane}` (the focused pane's manual name), and `{terminal_title}` (the focused pane's own terminal title with spinner frames stripped). Write `{{` and `}}` for literal braces. A token with no value renders empty.
+Tokens are `{hostname}`, `{session}` (the session name, `default` when unnamed), `{workspace}`, `{tab}`, `{pane}` (the focused pane's manual name), and `{terminal_title}` (the focused pane's own terminal title with spinner frames stripped). Write `{{` and `}}` for literal braces. A token with no value renders empty.
 
 The title renders on the Herdr server, so `{hostname}` names the machine the panes run on, including when you attach with `herdr --remote` or run `herdr` over SSH. Set `window_title = ""` to leave the outer terminal title alone.
 

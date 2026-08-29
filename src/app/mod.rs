@@ -148,7 +148,7 @@ pub struct App {
     tab_bar_commands: Vec<tab_bar_status::TabBarCommandRuntime>,
     next_tab_bar_datetime_refresh: Option<Instant>,
     /// Parsed `ui.window_title` plus the hostname resolved when it was applied.
-    window_title_template: Option<(crate::config::WindowTitleTemplate, String)>,
+    window_title_template: Option<(crate::config::WindowTitleTemplate, String, String)>,
     pub(crate) persist_pane_history: bool,
     /// Last render-loop attempt, including a throttled hidden-only PTY skip.
     pub(crate) last_render_at: Option<Instant>,

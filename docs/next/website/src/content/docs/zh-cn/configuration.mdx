@@ -308,7 +308,7 @@ Herdr 会模拟各窗格中的终端，因此窗格内写入的 `OSC 0`/`OSC 2` 
 window_title = "{hostname}: {workspace}"
 ```
 
-可用记号为 `{hostname}`、`{workspace}`、`{tab}`、`{pane}`（聚焦窗格的手动名称）和 `{terminal_title}`（聚焦窗格自身的终端标题，已去除加载动画字符）。用 `{{` 和 `}}` 表示字面花括号。没有值的记号会渲染为空。
+可用记号为 `{hostname}`、`{session}`（会话名，未命名时为 `default`）、`{workspace}`、`{tab}`、`{pane}`（聚焦窗格的手动名称）和 `{terminal_title}`（聚焦窗格自身的终端标题，已去除加载动画字符）。用 `{{` 和 `}}` 表示字面花括号。没有值的记号会渲染为空。
 
 标题在 Herdr 服务器上生成，因此即使通过 `herdr --remote` 连接或经由 SSH 运行 `herdr`，`{hostname}` 仍然指向运行窗格的那台机器。设置 `window_title = ""` 可以不改动外层终端标题。
 
