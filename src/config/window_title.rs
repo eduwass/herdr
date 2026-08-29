@@ -21,6 +21,8 @@ pub(crate) fn sanitize_window_title_text(value: &str) -> Option<String> {
 pub enum WindowTitleToken {
     /// Host the Herdr server runs on.
     Hostname,
+    /// Name of the session this server runs ("default" when unnamed).
+    Session,
     /// Active workspace display name.
     Workspace,
     /// Active tab display name.
@@ -35,6 +37,7 @@ impl WindowTitleToken {
     fn parse(name: &str) -> Option<Self> {
         match name {
             "hostname" => Some(Self::Hostname),
+            "session" => Some(Self::Session),
             "workspace" => Some(Self::Workspace),
             "tab" => Some(Self::Tab),
             "pane" => Some(Self::Pane),
@@ -150,6 +153,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_session_token() {
+        let template = WindowTitleTemplate::parse("[{session}] {workspace}")
+            .expect("parse")
+            .expect("template");
+        assert!(template.uses(WindowTitleToken::Session));
+    }
+
+    #[test]
     fn default_template_parses() {
         assert!(WindowTitleTemplate::parse(&default_window_title())
             .expect("parse")
@@ -170,9 +181,9 @@ mod tests {
         assert!(window_title_diagnostics("a } b")
             .expect("diagnostic")
             .contains("unmatched"));
-        assert!(window_title_diagnostics("{session}")
+        assert!(window_title_diagnostics("{nope}")
             .expect("diagnostic")
-            .contains("unknown token '{session}'"));
+            .contains("unknown token '{nope}'"));
     }
 
     #[test]
