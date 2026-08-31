@@ -94,6 +94,7 @@ pub(crate) fn apply_pane_chrome(
     pane_borders: bool,
     pane_gaps: bool,
     pane_outer_borders: bool,
+    keep_outer_top_row: bool,
 ) -> Vec<PaneInfo> {
     let multi_pane = panes.len() > 1;
     let outer_left = panes.iter().map(|info| info.rect.x).min().unwrap_or(0);
@@ -140,7 +141,9 @@ pub(crate) fn apply_pane_chrome(
                     if info.rect.x == outer_left {
                         borders.remove(Borders::LEFT);
                     }
-                    if info.rect.y == outer_top {
+                    // Border titles render on the top border row; keep it as a
+                    // title bar even when outer borders are hidden.
+                    if info.rect.y == outer_top && !keep_outer_top_row {
                         borders.remove(Borders::TOP);
                     }
                     if info.rect.x.saturating_add(info.rect.width) == outer_right {
@@ -232,6 +235,7 @@ pub(super) fn resize_tab_panes(
         app.pane_borders,
         app.pane_gaps,
         app.pane_outer_borders,
+        app.pane_border_shows_osc_title,
     ) {
         let pane_inner = pane_inner_rect(info.rect, info.borders);
 
@@ -307,6 +311,7 @@ pub(super) fn compute_pane_infos(
         app.pane_borders,
         app.pane_gaps,
         app.pane_outer_borders,
+        app.pane_border_shows_osc_title,
     );
 
     for info in &mut pane_infos {
@@ -1107,6 +1112,7 @@ mod tests {
             true,
             false,
             true,
+            false,
         );
         let left = infos.iter().find(|info| info.id == root).unwrap();
         let right = infos.iter().find(|info| info.id == right).unwrap();
@@ -1128,6 +1134,7 @@ mod tests {
             true,
             false,
             true,
+            false,
         );
         let top = infos.iter().find(|info| info.id == root).unwrap();
         let bottom = infos.iter().find(|info| info.id == bottom).unwrap();
@@ -1149,12 +1156,34 @@ mod tests {
             true,
             false,
             false,
+            false,
         );
         let left = infos.iter().find(|info| info.id == root).unwrap();
         let right = infos.iter().find(|info| info.id == right).unwrap();
 
         assert_eq!(left.borders, Borders::NONE);
         assert_eq!(right.borders, Borders::LEFT);
+    }
+
+    #[test]
+    fn osc_title_border_keeps_outer_top_row_without_outer_borders() {
+        let mut workspace = Workspace::test_new("test");
+        let root = workspace.tabs[0].root_pane;
+        let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(root);
+
+        let infos = apply_pane_chrome(
+            workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
+            true,
+            false,
+            false,
+            true,
+        );
+        let left = infos.iter().find(|info| info.id == root).unwrap();
+        let right = infos.iter().find(|info| info.id == right).unwrap();
+
+        assert_eq!(left.borders, Borders::TOP);
+        assert_eq!(right.borders, Borders::TOP | Borders::LEFT);
     }
 
     #[test]
@@ -1169,6 +1198,7 @@ mod tests {
             true,
             true,
             true,
+            false,
         );
         let left = infos.iter().find(|info| info.id == root).unwrap();
         let right = infos.iter().find(|info| info.id == right).unwrap();
@@ -1190,6 +1220,7 @@ mod tests {
             false,
             true,
             true,
+            false,
         );
         let left = infos.iter().find(|info| info.id == root).unwrap();
         let right = infos.iter().find(|info| info.id == right).unwrap();
@@ -1210,6 +1241,7 @@ mod tests {
             false,
             false,
             true,
+            false,
         );
 
         for info in infos {
