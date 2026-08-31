@@ -246,7 +246,7 @@ impl App {
         // tmux-style confirm-on-close: a single-pane tab close is a pane close,
         // so give it the same running-process confirmation as pane close. This
         // runs before the workspace-closing path so the last tab is covered too.
-        if self.state.confirm_close_running {
+        if self.state.confirm_close_running && super::panes::is_interactive_request(&id) {
             let single_pane_id = ws
                 .tabs
                 .get(tab_idx)

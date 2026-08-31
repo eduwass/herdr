@@ -1629,7 +1629,7 @@ impl App {
                 "closing this pane would close a worktree group",
             ));
         }
-        if self.state.confirm_close_running {
+        if self.state.confirm_close_running && is_interactive_request(&id) {
             let terminal_id = self.state.terminal_id_for_pane(ws_idx, pane_id);
             if let Some(command) = terminal_id
                 .as_ref()
@@ -1948,6 +1948,14 @@ fn split_path_id(idx: usize, path: &[bool]) -> String {
 
 fn invalid_agent(id: String) -> String {
     encode_error(id, "invalid_agent", "agent label must not be empty")
+}
+
+/// Only closes driven by the interactive TUI (keybinding, context menu) get
+/// the tmux-style running-process confirmation. Programmatic closes over the
+/// API/CLI use their own request ids and must close immediately, otherwise a
+/// script gets `confirmation_required` and a modal nobody is there to answer.
+pub(super) fn is_interactive_request(id: &str) -> bool {
+    id.starts_with("tui.")
 }
 
 pub(super) fn foreground_command_requires_close_confirmation(
@@ -2426,6 +2434,35 @@ mod tests {
     }
 
     #[test]
+    fn api_pane_close_from_non_tui_request_skips_running_confirmation() {
+        let (mut app, public_pane_id) = app_with_test_workspace();
+        app.state.confirm_close_running = true;
+        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .terminal_id(pane_id)
+            .cloned()
+            .unwrap();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .foreground_command = Some("claude".into());
+
+        let response = app.handle_pane_close(
+            "cli:pane:close".into(),
+            PaneTarget {
+                pane_id: public_pane_id.clone(),
+            },
+        );
+
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(success.id, "cli:pane:close");
+        assert!(app.state.pending_close.is_none());
+        assert_ne!(app.state.mode, Mode::ConfirmClose);
+        assert!(app.state.workspaces.is_empty());
+    }
+
+    #[test]
     fn api_pane_close_confirms_non_shell_foreground_command() {
         let (mut app, public_pane_id) = app_with_test_workspace();
         app.state.confirm_close_running = true;
@@ -2441,7 +2478,7 @@ mod tests {
             .foreground_command = Some("claude".into());
 
         let response = app.handle_pane_close(
-            "req".into(),
+            "tui.pane.close".into(),
             PaneTarget {
                 pane_id: public_pane_id.clone(),
             },
@@ -2486,7 +2523,7 @@ mod tests {
             .foreground_command = Some("claude".into());
 
         let response = app.handle_pane_close(
-            "req".into(),
+            "tui.pane.close".into(),
             PaneTarget {
                 pane_id: target_public_pane_id.clone(),
             },

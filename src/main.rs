@@ -315,7 +315,8 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # confirm_close = true
 
 # Ask for tmux-style confirmation before closing a pane that has a non-shell
-# process (a script or agent) running in it.
+# process (a script or agent) running in it. Interactive closes only; the
+# CLI/API always close immediately.
 # confirm_close_running = false
 
 # Ask for a tab name before creating a new tab.
