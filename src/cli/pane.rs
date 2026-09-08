@@ -3,10 +3,10 @@ use crate::api::schema::{
     PaneFocusDirectionParams, PaneInputSetParams, PaneLayoutParams, PaneListParams,
     PaneMoveDestination, PaneMoveParams, PaneNeighborParams, PaneProcessInfoParams, PaneReadParams,
     PaneReleaseAgentParams, PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
-    PaneReportMetadataParams, PaneResizeParams, PaneRightClickTarget, PaneSendInputParams,
-    PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneSwapParams, PaneTarget,
-    PaneWaitForOutputParams, PaneZoomMode, PaneZoomParams, ReadFormat, ReadSource, Request,
-    SplitDirection,
+    PaneReportMetadataParams, PaneResizeMode, PaneResizeParams, PaneRightClickTarget,
+    PaneSendInputParams, PaneSendKeysParams, PaneSendTextParams, PaneSplitParams, PaneSwapParams,
+    PaneTarget, PaneWaitForOutputParams, PaneZoomMode, PaneZoomParams, ReadFormat, ReadSource,
+    Request, SplitDirection,
 };
 
 pub(super) fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
@@ -221,7 +221,24 @@ fn pane_resize(args: &[String]) -> std::io::Result<i32> {
         }
     };
 
-    super::runtime::pane_resize(params)
+    if let Some(mode) = params.mode {
+        super::print_response(&super::send_request(&Request {
+            id: "cli:pane:resize".into(),
+            method: Method::PaneResizeArea(crate::api::schema::PaneResizeAreaParams {
+                pane_id: params.pane_id,
+                mode,
+                amount: params.amount,
+            }),
+        })?)
+    } else if let Some(direction) = params.direction {
+        super::runtime::pane_resize(PaneResizeParams {
+            pane_id: params.pane_id,
+            direction,
+            amount: params.amount,
+        })
+    } else {
+        Ok(2)
+    }
 }
 
 fn parse_optional_current_pane_args_from_env(args: &[String]) -> Result<Option<String>, String> {
@@ -305,9 +322,18 @@ fn parse_pane_focus_args(args: &[String]) -> Result<PaneFocusDirectionParams, St
     })
 }
 
-fn parse_pane_resize_args(args: &[String]) -> Result<PaneResizeParams, String> {
+#[derive(Debug)]
+struct PaneResizeArgs {
+    pane_id: Option<String>,
+    direction: Option<PaneDirection>,
+    mode: Option<PaneResizeMode>,
+    amount: Option<f32>,
+}
+
+fn parse_pane_resize_args(args: &[String]) -> Result<PaneResizeArgs, String> {
     let mut pane_id = None;
     let mut direction = None;
+    let mut mode = None;
     let mut amount = None;
 
     let mut index = 0;
@@ -328,8 +354,40 @@ fn parse_pane_resize_args(args: &[String]) -> Result<PaneResizeParams, String> {
                 let Some(value) = args.get(index + 1) else {
                     return Err("missing value for --direction".into());
                 };
+                if mode.is_some() {
+                    return Err(
+                        "provide only one of --direction, --grow, --shrink, or --reset".into(),
+                    );
+                }
                 direction = Some(parse_pane_direction(value)?);
                 index += 2;
+            }
+            "--grow" => {
+                if direction.is_some() || mode.is_some() {
+                    return Err(
+                        "provide only one of --direction, --grow, --shrink, or --reset".into(),
+                    );
+                }
+                mode = Some(PaneResizeMode::Grow);
+                index += 1;
+            }
+            "--shrink" => {
+                if direction.is_some() || mode.is_some() {
+                    return Err(
+                        "provide only one of --direction, --grow, --shrink, or --reset".into(),
+                    );
+                }
+                mode = Some(PaneResizeMode::Shrink);
+                index += 1;
+            }
+            "--reset" => {
+                if direction.is_some() || mode.is_some() {
+                    return Err(
+                        "provide only one of --direction, --grow, --shrink, or --reset".into(),
+                    );
+                }
+                mode = Some(PaneResizeMode::Reset);
+                index += 1;
             }
             "--amount" => {
                 let Some(value) = args.get(index + 1) else {
@@ -348,16 +406,17 @@ fn parse_pane_resize_args(args: &[String]) -> Result<PaneResizeParams, String> {
         }
     }
 
-    let Some(direction) = direction else {
+    if direction.is_none() && mode.is_none() {
         return Err(
-            "usage: herdr pane resize --direction left|right|up|down [--amount FLOAT] [--pane ID|--current]"
+            "usage: herdr pane resize (--direction left|right|up|down|--grow|--shrink|--reset) [--amount FLOAT] [--pane ID|--current]"
                 .into(),
         );
-    };
+    }
 
-    Ok(PaneResizeParams {
+    Ok(PaneResizeArgs {
         pane_id,
         direction,
+        mode,
         amount,
     })
 }
@@ -1009,6 +1068,52 @@ fn parse_pane_direction(value: &str) -> Result<PaneDirection, String> {
     }
 }
 
+pub(super) fn refuse_self_target(target_pane_id: &str, action: &str) -> Option<i32> {
+    let request_id = format!("cli:pane:{action}");
+    refuse_self_target_in_context(
+        target_pane_id,
+        action,
+        "pane",
+        "panes",
+        "HERDR_PANE_ID",
+        &request_id,
+        super::normalize_pane_id,
+    )
+}
+
+pub(super) fn refuse_self_target_in_context(
+    target_id: &str,
+    action: &str,
+    kind: &str,
+    kind_plural: &str,
+    env_var: &str,
+    request_id: &str,
+    normalize: fn(&str) -> String,
+) -> Option<i32> {
+    if std::env::var("HERDR_ALLOW_SELF_TARGET").as_deref() == Ok("1") {
+        return None;
+    }
+    let current_target_id = std::env::var(env_var)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| normalize(&value))?;
+    if current_target_id != target_id {
+        return None;
+    }
+
+    let response = serde_json::json!({
+        "id": request_id,
+        "error": {
+            "code": "self_target_refused",
+            "message": format!(
+                "refusing to {action} {kind} {target_id}: it is the {kind} this command runs in ({env_var}). Re-list {kind_plural} and target another one, or set HERDR_ALLOW_SELF_TARGET=1 to override."
+            ),
+        }
+    });
+    let _ = super::print_response(&response);
+    Some(2)
+}
+
 fn pane_close(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_pane_id) = args.first() else {
         eprintln!("usage: herdr pane close <pane_id>");
@@ -1019,7 +1124,12 @@ fn pane_close(args: &[String]) -> std::io::Result<i32> {
         return Ok(2);
     }
 
-    super::runtime::pane_close(super::normalize_pane_id(raw_pane_id))
+    let pane_id = super::normalize_pane_id(raw_pane_id);
+    if let Some(exit_code) = refuse_self_target(&pane_id, "close") {
+        return Ok(exit_code);
+    }
+
+    super::runtime::pane_close(pane_id)
 }
 
 fn pane_send_text(args: &[String]) -> std::io::Result<i32> {
@@ -1029,6 +1139,9 @@ fn pane_send_text(args: &[String]) -> std::io::Result<i32> {
     }
 
     let pane_id = super::normalize_pane_id(&args[0]);
+    if let Some(exit_code) = refuse_self_target(&pane_id, "send-text") {
+        return Ok(exit_code);
+    }
     let text = args[1..].join(" ");
     super::send_ok_request(Method::PaneSendText(PaneSendTextParams { pane_id, text }))
 }
@@ -1040,6 +1153,9 @@ fn pane_send_keys(args: &[String]) -> std::io::Result<i32> {
     }
 
     let pane_id = super::normalize_pane_id(&args[0]);
+    if let Some(exit_code) = refuse_self_target(&pane_id, "send-keys") {
+        return Ok(exit_code);
+    }
     let keys = args[1..].to_vec();
     super::send_ok_request(Method::PaneSendKeys(PaneSendKeysParams { pane_id, keys }))
 }
@@ -1051,6 +1167,9 @@ fn pane_run(args: &[String]) -> std::io::Result<i32> {
     }
 
     let pane_id = super::normalize_pane_id(&args[0]);
+    if let Some(exit_code) = refuse_self_target(&pane_id, "run") {
+        return Ok(exit_code);
+    }
     let text = args[1..].join(" ");
     super::send_ok_request(Method::PaneSendInput(PaneSendInputParams {
         pane_id,
@@ -1677,7 +1796,7 @@ fn print_pane_help() {
     eprintln!("  herdr pane edges [--pane ID|--current]");
     eprintln!("  herdr pane focus --direction left|right|up|down [--pane ID|--current]");
     eprintln!(
-        "  herdr pane resize --direction left|right|up|down [--amount FLOAT] [--pane ID|--current]"
+        "  herdr pane resize (--direction left|right|up|down|--grow|--shrink|--reset) [--amount FLOAT] [--pane ID|--current]"
     );
     eprintln!("  herdr pane zoom [<pane_id>|--pane ID|--current] [--toggle|--on|--off]");
     eprintln!("  herdr pane rename <pane_id> <label>|--clear");
@@ -1705,9 +1824,71 @@ fn print_pane_help() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::OsString;
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    fn with_self_target_env(
+        pane_id: Option<&str>,
+        allow_self_target: Option<&str>,
+        run: impl FnOnce(),
+    ) {
+        let _lock = crate::integration::integration_env_lock();
+        let original_pane_id = std::env::var_os("HERDR_PANE_ID");
+        let original_allow = std::env::var_os("HERDR_ALLOW_SELF_TARGET");
+
+        set_or_remove_env("HERDR_PANE_ID", pane_id);
+        set_or_remove_env("HERDR_ALLOW_SELF_TARGET", allow_self_target);
+        run();
+
+        restore_env("HERDR_PANE_ID", original_pane_id);
+        restore_env("HERDR_ALLOW_SELF_TARGET", original_allow);
+    }
+
+    fn set_or_remove_env(key: &str, value: Option<&str>) {
+        if let Some(value) = value {
+            std::env::set_var(key, value);
+        } else {
+            std::env::remove_var(key);
+        }
+    }
+
+    fn restore_env(key: &str, value: Option<OsString>) {
+        if let Some(value) = value {
+            std::env::set_var(key, value);
+        } else {
+            std::env::remove_var(key);
+        }
+    }
+
+    #[test]
+    fn refuse_self_target_refuses_matching_env_pane() {
+        with_self_target_env(Some("issue-1"), None, || {
+            assert_eq!(refuse_self_target("issue-1", "close"), Some(2));
+        });
+    }
+
+    #[test]
+    fn refuse_self_target_allows_different_pane() {
+        with_self_target_env(Some("issue-1"), None, || {
+            assert_eq!(refuse_self_target("issue-2", "close"), None);
+        });
+    }
+
+    #[test]
+    fn refuse_self_target_allows_when_env_unset() {
+        with_self_target_env(None, None, || {
+            assert_eq!(refuse_self_target("issue-1", "close"), None);
+        });
+    }
+
+    #[test]
+    fn refuse_self_target_allows_override_env() {
+        with_self_target_env(Some("issue-1"), Some("1"), || {
+            assert_eq!(refuse_self_target("issue-1", "close"), None);
+        });
     }
 
     #[test]
@@ -2016,7 +2197,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(params.pane_id, Some("issue-2".into()));
-        assert_eq!(params.direction, PaneDirection::Left);
+        assert_eq!(params.direction, Some(PaneDirection::Left));
+        assert_eq!(params.mode, None);
         assert_eq!(params.amount, Some(0.125));
     }
 
@@ -2104,5 +2286,29 @@ mod tests {
         let err = parse_pane_wait_output_args(&args(&["issue-1", "--match", "a", "--regex", "b"]))
             .unwrap_err();
         assert!(err.contains("mutually exclusive"));
+    }
+
+    #[test]
+    fn parse_pane_resize_args_accepts_grow_and_current() {
+        let params = parse_pane_resize_args(&args(&["--grow", "--current"])).unwrap();
+
+        assert_eq!(params.pane_id, None);
+        assert_eq!(params.direction, None);
+        assert_eq!(params.mode, Some(PaneResizeMode::Grow));
+    }
+
+    #[test]
+    fn parse_pane_resize_args_rejects_direction_and_grow() {
+        let err = parse_pane_resize_args(&args(&["--direction", "right", "--grow"])).unwrap_err();
+
+        assert!(err.contains("provide only one"));
+    }
+
+    #[test]
+    fn parse_pane_resize_args_accepts_reset() {
+        let params = parse_pane_resize_args(&args(&["--reset"])).unwrap();
+
+        assert_eq!(params.direction, None);
+        assert_eq!(params.mode, Some(PaneResizeMode::Reset));
     }
 }

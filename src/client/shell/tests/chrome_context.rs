@@ -1,5 +1,219 @@
 use super::*;
 
+fn running_close_state() -> ClientShellState {
+    let mut config = Config::default();
+    config.ui.confirm_close_running = true;
+    let mut state = ClientShellState::new(ClientShellConfig::from_config(&config));
+    state.set_snapshot(Box::new(snapshot()));
+    state.set_pane_surface(surface());
+    state
+}
+
+fn request_running_close(state: &mut ClientShellState, tab: bool) -> String {
+    let mut outcome = ClientShellInput::default();
+    let method = if tab {
+        crate::api::schema::Method::TabClose(crate::api::schema::TabTarget {
+            tab_id: "tab_1".into(),
+        })
+    } else {
+        crate::api::schema::Method::PaneClose(crate::api::schema::PaneTarget {
+            pane_id: "pane_1".into(),
+        })
+    };
+    state.push_endpoint_method(method, &mut outcome);
+    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("process probe")
+    };
+    assert!(matches!(
+        request.method,
+        crate::api::schema::Method::PaneProcessInfo(_)
+    ));
+    request.id.clone()
+}
+
+fn process_info(idle: bool) -> crate::api::schema::ResponseResult {
+    crate::api::schema::ResponseResult::PaneProcessInfo {
+        process_info: crate::api::schema::PaneProcessInfo {
+            pane_id: "pane_1".into(),
+            shell_pid: Some(100),
+            foreground_process_group_id: Some(if idle { 100 } else { 200 }),
+            tty: None,
+            foreground_processes: vec![crate::api::schema::PaneProcessInfoProcess {
+                pid: if idle { 100 } else { 200 },
+                name: if idle { "zsh" } else { "python" }.into(),
+                argv0: None,
+                argv: None,
+                cmdline: None,
+                cwd: None,
+            }],
+        },
+    }
+}
+
+#[test]
+fn running_close_records_target_and_accepts_keyboard_and_mouse() {
+    for tab in [false, true] {
+        let mut state = running_close_state();
+        let id = request_running_close(&mut state, tab);
+        assert!(state
+            .handle_endpoint_result("boot-1", &id, Ok(process_info(false)))
+            .1
+            .is_empty());
+        assert!(matches!(
+            state.overlay,
+            Some(ClientShellOverlay::ConfirmClose(_))
+        ));
+        state.snapshot.as_mut().unwrap().focused_pane_id = Some("unrelated-pane".into());
+        let outcome = if tab {
+            state.compose(106, 20).unwrap();
+            let hit = state.hits.overlay_primary;
+            state.handle_raw_events(vec![RawInputEvent::Mouse(crossterm::event::MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: hit.x,
+                row: hit.y,
+                modifiers: KeyModifiers::empty(),
+            })])
+        } else {
+            state.handle_input_bytes(b"\r")
+        };
+        let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+            panic!("close target")
+        };
+        if tab {
+            assert!(
+                matches!(&request.method, crate::api::schema::Method::TabClose(target) if target.tab_id == "tab_1")
+            );
+        } else {
+            assert!(
+                matches!(&request.method, crate::api::schema::Method::PaneClose(target) if target.pane_id == "pane_1")
+            );
+        }
+    }
+}
+
+#[test]
+fn running_close_confirms_an_exec_replaced_shell_and_rejects_unknown_identity() {
+    for tab in [false, true] {
+        for unknown in [false, true] {
+            let mut state = running_close_state();
+            let id = request_running_close(&mut state, tab);
+            let mut result = process_info(false);
+            let crate::api::schema::ResponseResult::PaneProcessInfo { process_info } = &mut result
+            else {
+                panic!("process info");
+            };
+            process_info.shell_pid = process_info.foreground_process_group_id;
+            if unknown {
+                process_info.foreground_processes.clear();
+            }
+            let (_, actions) = state.handle_endpoint_result("boot-1", &id, Ok(result));
+            assert!(actions.is_empty());
+            if unknown {
+                assert!(state.endpoint_error.is_some());
+            } else {
+                assert!(matches!(
+                    state.overlay,
+                    Some(ClientShellOverlay::ConfirmClose(_))
+                ));
+            }
+        }
+    }
+}
+
+#[test]
+fn running_close_is_idle_aware_and_fails_closed_on_stale_target_or_probe_error() {
+    let mut state = running_close_state();
+    let id = request_running_close(&mut state, false);
+    let (_, actions) = state.handle_endpoint_result("boot-1", &id, Ok(process_info(true)));
+    assert_eq!(actions.len(), 1);
+    assert!(state.overlay.is_none());
+    for stale in ["removed", "rebooted", "error", "cancel"] {
+        let mut state = running_close_state();
+        let id = request_running_close(&mut state, false);
+        if stale == "error" {
+            assert!(state
+                .handle_endpoint_result(
+                    "boot-1",
+                    &id,
+                    Err(ClientShellEndpointError {
+                        code: Some("endpoint_timeout".into()),
+                        message: "timeout".into(),
+                    })
+                )
+                .1
+                .is_empty());
+        } else {
+            state.handle_endpoint_result("boot-1", &id, Ok(process_info(false)));
+            match stale {
+                "removed" => state.snapshot.as_mut().unwrap().panes.clear(),
+                "rebooted" => state.snapshot.as_mut().unwrap().boot_id = "boot-2".into(),
+                _ => {
+                    state.handle_input_bytes(b"\x1b");
+                }
+            }
+        }
+        assert!(!state.handle_input_bytes(b"\r").actions.iter().any(|action| matches!(
+            action,
+            ClientShellAction::Endpoint { request, .. }
+                if matches!(request.method, crate::api::schema::Method::PaneClose(_) | crate::api::schema::Method::TabClose(_))
+        )), "stale close dispatched: {stale}");
+    }
+}
+
+#[test]
+fn move_to_new_tab_menu_captures_the_original_pane() {
+    let mut state = running_close_state();
+    let mut other = state.snapshot.as_ref().unwrap().panes[0].clone();
+    other.pane_id = "pane_2".into();
+    state.snapshot.as_mut().unwrap().panes.push(other);
+    state.open_pane_context_menu("pane_1".into(), 40, 4);
+    let Some(ClientShellOverlay::ContextMenu(menu)) = state.overlay.as_ref() else {
+        panic!("menu")
+    };
+    let index = menu
+        .items()
+        .iter()
+        .position(|item| item.action == ClientContextMenuAction::MoveToNewTab)
+        .unwrap();
+    state.snapshot.as_mut().unwrap().focused_pane_id = Some("pane_2".into());
+    let mut outcome = ClientShellInput::default();
+    state.activate_context_menu_item(index, &mut outcome);
+    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("move")
+    };
+    assert!(
+        matches!(&request.method, crate::api::schema::Method::PaneMove(params)
+        if params.pane_id == "pane_1" && matches!(&params.destination, crate::api::schema::PaneMoveDestination::NewTab { workspace_id, .. } if workspace_id.as_deref() == Some("ws_1")))
+    );
+}
+
+#[test]
+fn double_right_click_zooms_after_opening_the_normal_pane_menu() {
+    let mut state = running_close_state();
+    state.config.pane_double_right_click_zoom = true;
+    state.compose(106, 20).unwrap();
+    let hit = state.hits.panes[0].inner_rect;
+    let mouse = crossterm::event::MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column: hit.x + 1,
+        row: hit.y + 1,
+        modifiers: KeyModifiers::empty(),
+    };
+    state.handle_raw_events(vec![RawInputEvent::Mouse(mouse)]);
+    assert!(matches!(
+        state.overlay,
+        Some(ClientShellOverlay::ContextMenu(_))
+    ));
+    let outcome = state.handle_raw_events(vec![RawInputEvent::Mouse(mouse)]);
+    let [ClientShellAction::Endpoint { request, .. }] = &outcome.actions[..] else {
+        panic!("zoom")
+    };
+    assert!(
+        matches!(&request.method, crate::api::schema::Method::PaneZoom(params) if params.pane_id.as_deref() == Some("pane_1"))
+    );
+    assert!(state.overlay.is_none());
+}
+
 #[test]
 fn tab_overflow_controls_scroll_the_client_owned_tab_bar() {
     let mut snapshot = snapshot();

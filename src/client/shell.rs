@@ -5,6 +5,7 @@ mod agent_sidebar;
 mod aggregate_navigation;
 mod composition;
 mod config;
+mod confirm_running;
 mod context_menu;
 mod copy_mode;
 mod endpoint_agent_state;

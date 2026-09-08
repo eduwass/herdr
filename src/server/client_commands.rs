@@ -26,8 +26,11 @@ const CLIENT_SHELL_METHODS: &[&str] = &[
     "pane.focus_direction",
     "pane.input.set",
     "pane.link.activate",
+    "pane.move",
+    "pane.process_info",
     "pane.rename",
     "pane.resize",
+    "pane.resize_area",
     "pane.scroll",
     "pane.selection.read",
     "pane.split",
@@ -285,7 +288,14 @@ mod tests {
             "/tests/fixtures/endpoint-method-shapes-v1.json"
         )))
         .expect("endpoint method shape fixture");
-        let actual = endpoint_method_shape_digests();
+        let mut actual = endpoint_method_shape_digests();
+        // Fork-only additions do not change any published generation-one method shape.
+        for method in ["pane.move", "pane.process_info", "pane.resize_area"] {
+            assert!(
+                actual.remove(method).is_some(),
+                "missing fork method {method}"
+            );
+        }
 
         assert_eq!(
             actual,

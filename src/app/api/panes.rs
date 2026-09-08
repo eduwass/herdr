@@ -695,6 +695,31 @@ impl App {
     }
 
     pub(super) fn handle_pane_resize(&mut self, id: String, params: PaneResizeParams) -> String {
+        self.handle_pane_resize_common(id, params, None)
+    }
+
+    pub(super) fn handle_pane_resize_area(
+        &mut self,
+        id: String,
+        params: crate::api::schema::PaneResizeAreaParams,
+    ) -> String {
+        self.handle_pane_resize_common(
+            id,
+            PaneResizeParams {
+                pane_id: params.pane_id,
+                direction: PaneDirection::Right,
+                amount: params.amount,
+            },
+            Some(params.mode),
+        )
+    }
+
+    fn handle_pane_resize_common(
+        &mut self,
+        id: String,
+        params: PaneResizeParams,
+        mode: Option<crate::api::schema::PaneResizeMode>,
+    ) -> String {
         let Some((ws_idx, pane_id)) = self.resolve_optional_pane(params.pane_id.as_deref()) else {
             return encode_error(id, "pane_not_found", "pane not found");
         };
@@ -721,7 +746,15 @@ impl App {
             .workspaces
             .get_mut(ws_idx)
             .and_then(|ws| ws.tabs.get_mut(tab_idx))
-            .is_some_and(|tab| tab.layout.resize_pane(pane_id, direction, amount, area));
+            .is_some_and(|tab| match mode {
+                None => tab.layout.resize_pane(pane_id, direction, amount, area),
+                Some(crate::api::schema::PaneResizeMode::Reset) => tab.layout.reset_split_ratios(),
+                Some(mode) => tab.layout.resize_pane_area(
+                    pane_id,
+                    mode == crate::api::schema::PaneResizeMode::Grow,
+                    amount,
+                ),
+            });
         if changed {
             self.schedule_session_save();
         }
@@ -2015,6 +2048,7 @@ impl App {
             self.state.pane_borders,
             self.state.pane_gaps,
             self.state.pane_outer_borders,
+            self.state.pane_border_shows_osc_title,
         )
         .into_iter()
         .filter_map(|pane| {

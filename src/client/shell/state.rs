@@ -69,6 +69,7 @@ pub(crate) enum ClientShellKeybindingSource {
 }
 
 pub(crate) struct ClientShellConfig {
+    pub(super) session_name: String,
     pub(super) sidebar_width: u16,
     pub(super) sidebar_min_width: u16,
     pub(super) sidebar_max_width: u16,
@@ -97,6 +98,8 @@ pub(crate) struct ClientShellConfig {
     pub(super) prompt_new_tab_name: bool,
     pub(super) prompt_new_workspace_name: bool,
     pub(super) confirm_close: bool,
+    pub(super) confirm_close_running: bool,
+    pub(super) pane_double_right_click_zoom: bool,
     pub(super) mouse_capture: bool,
     pub(super) mouse_scroll_lines: usize,
     pub(super) right_click_passthrough_modifiers: Option<crossterm::event::KeyModifiers>,
@@ -578,6 +581,7 @@ pub(super) enum ClientContextMenuAction {
     SwapWithFocusedPane,
     SplitRight,
     SplitDown,
+    MoveToNewTab,
     Zoom,
     ToggleRightClickPassthrough,
     ClosePane,
@@ -602,6 +606,7 @@ pub(super) enum ClientContextMenuTarget {
         source_pane_id: Option<String>,
         has_manual_label: bool,
         right_click_passthrough: bool,
+        can_move_to_new_tab: bool,
     },
 }
 
@@ -620,6 +625,7 @@ pub(super) struct ClientContextMenuItem {
 
 #[derive(Debug)]
 pub(super) struct ClientConfirmCloseOverlay {
+    pub(super) running_close: Option<Box<super::confirm_running::ClientPaneClose>>,
     pub(super) workspace_id: String,
     pub(super) title: String,
     pub(super) detail: String,
@@ -664,6 +670,7 @@ impl ClientShellOverlay {
 
 #[derive(Debug)]
 pub(super) enum PendingEndpointKind {
+    CloseProcessInfo(Box<super::confirm_running::ClientPaneClose>),
     Generic,
     ProductAnnouncementDismiss {
         version: String,
@@ -934,6 +941,7 @@ pub(crate) struct ClientShellState {
     pub(super) replaying_url_click: bool,
     pub(super) selection: Option<crate::selection::Selection<String>>,
     pub(super) last_pane_click: Option<ClientPaneClick>,
+    pub(super) last_pane_right_click: Option<ClientPaneClick>,
     pub(super) selection_autoscroll: Option<ClientSelectionAutoscroll>,
     pub(super) selection_autoscroll_deadline: Option<std::time::Instant>,
     pub(super) selection_highlight_clear_deadline: Option<std::time::Instant>,
@@ -1077,6 +1085,7 @@ impl ClientShellState {
             replaying_url_click: false,
             selection: None,
             last_pane_click: None,
+            last_pane_right_click: None,
             selection_autoscroll: None,
             selection_autoscroll_deadline: None,
             selection_highlight_clear_deadline: None,
@@ -1229,6 +1238,7 @@ impl ClientShellState {
         self.replaying_url_click = false;
         self.selection = None;
         self.last_pane_click = None;
+        self.last_pane_right_click = None;
         self.selection_autoscroll = None;
         self.selection_autoscroll_deadline = None;
         self.selection_highlight_clear_deadline = None;

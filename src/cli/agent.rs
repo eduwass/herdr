@@ -829,6 +829,11 @@ fn agent_prompt(args: &[String]) -> std::io::Result<i32> {
         eprintln!("--timeout requires --wait");
         return Ok(2);
     }
+    if let Some(exit_code) =
+        refuse_self_targeted_agent_action(target, "prompt", "cli:agent:prompt:resolve")?
+    {
+        return Ok(exit_code);
+    }
     let response = super::send_request(&Request {
         id: "cli:agent:prompt".into(),
         method: Method::AgentPrompt(AgentPromptParams {
@@ -848,6 +853,11 @@ fn agent_send_keys(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
         eprintln!("usage: herdr agent send-keys <target> <key> [key ...]");
         return Ok(2);
+    }
+    if let Some(exit_code) =
+        refuse_self_targeted_agent_action(&args[0], "send-keys", "cli:agent:send-keys:resolve")?
+    {
+        return Ok(exit_code);
     }
 
     super::print_response(&super::send_request(&Request {
@@ -950,4 +960,20 @@ fn parse_timeout(value: &str) -> Result<u64, i32> {
         eprintln!("{err}");
         2
     })
+}
+
+/// Refuse an agent action aimed at the pane this CLI is running in.
+///
+/// Compares the target against `HERDR_PANE_ID` locally instead of resolving it
+/// server-side: upstream requires `agent prompt` to be exactly one request
+/// (tests/cli/agent_transport.rs), so a resolve round-trip here is not allowed.
+/// The cost is that a self-target expressed as an agent name rather than a pane
+/// id is not caught; the destructive paths (pane/tab close) work off pane ids
+/// and keep full coverage.
+fn refuse_self_targeted_agent_action(
+    target: &str,
+    action: &str,
+    _request_id: &str,
+) -> std::io::Result<Option<i32>> {
+    Ok(super::pane::refuse_self_target(target, action))
 }

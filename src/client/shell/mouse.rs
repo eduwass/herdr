@@ -603,6 +603,40 @@ impl ClientShellState {
 
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent, outcome: &mut ClientShellInput) {
         let point = (mouse.column, mouse.row);
+        if self.config.pane_double_right_click_zoom
+            && mouse.kind == MouseEventKind::Down(MouseButton::Right)
+            && mouse.modifiers.is_empty()
+        {
+            if let Some(ClientShellOverlay::ContextMenu(ClientContextMenuOverlay {
+                target: ClientContextMenuTarget::Pane { pane_id, .. },
+                ..
+            })) = self.overlay.as_ref()
+            {
+                let click = ClientPaneClick {
+                    pane_id: pane_id.clone(),
+                    viewport_row: mouse.row,
+                    col: mouse.column,
+                    at: std::time::Instant::now(),
+                };
+                if self
+                    .last_pane_right_click
+                    .as_ref()
+                    .is_some_and(|last| last.is_double_click_for(&click))
+                {
+                    self.last_pane_right_click = None;
+                    self.overlay = None;
+                    self.push_endpoint_method(
+                        crate::api::schema::Method::PaneZoom(crate::api::schema::PaneZoomParams {
+                            pane_id: Some(click.pane_id),
+                            mode: crate::api::schema::PaneZoomMode::Toggle,
+                        }),
+                        outcome,
+                    );
+                    outcome.repaint = true;
+                    return;
+                }
+            }
+        }
         if matches!(self.overlay, Some(ClientShellOverlay::Onboarding)) {
             if mouse.kind == MouseEventKind::Down(MouseButton::Left)
                 && super::contains(self.hits.overlay_primary, point)
@@ -1598,20 +1632,7 @@ impl ClientShellState {
                 match self.overlay.as_ref() {
                     Some(ClientShellOverlay::Rename(_)) => self.save_rename_overlay(outcome),
                     Some(ClientShellOverlay::ConfirmClose(_)) => {
-                        let Some(ClientShellOverlay::ConfirmClose(confirm)) = self.overlay.take()
-                        else {
-                            return;
-                        };
-                        self.push_endpoint_method(
-                            crate::api::schema::Method::WorkspaceClose(
-                                crate::api::schema::WorkspaceCloseParams {
-                                    workspace_id: confirm.workspace_id,
-                                    close_group: true,
-                                },
-                            ),
-                            outcome,
-                        );
-                        outcome.repaint = true;
+                        self.accept_close_overlay(outcome);
                     }
                     _ => {}
                 }
@@ -1744,6 +1765,14 @@ impl ClientShellState {
                     .find(|hit| super::contains(hit.rect, point))
                     .map(|hit| hit.pane_id.clone());
                 if let Some(pane_id) = pane_id {
+                    self.last_pane_right_click = (self.config.pane_double_right_click_zoom
+                        && mouse.modifiers.is_empty())
+                    .then(|| ClientPaneClick {
+                        pane_id: pane_id.clone(),
+                        viewport_row: mouse.row,
+                        col: mouse.column,
+                        at: std::time::Instant::now(),
+                    });
                     self.open_pane_context_menu(pane_id, mouse.column, mouse.row);
                     outcome.repaint = true;
                 }

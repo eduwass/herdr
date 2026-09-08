@@ -7,9 +7,13 @@ use ratatui::{
 pub(in crate::client::shell) fn collapsed_sidebar_sections(
     area: Rect,
 ) -> (Rect, Option<u16>, Rect) {
-    let content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
+    let mut content = Rect::new(area.x, area.y, area.width.saturating_sub(1), area.height);
     if content.is_empty() {
         return (Rect::default(), None, Rect::default());
+    }
+    if content.height >= 2 {
+        content.y += 1;
+        content.height -= 1;
     }
     if content.height < 7 {
         return (content, None, Rect::default());
@@ -35,6 +39,18 @@ pub(crate) fn render_collapsed_sidebar(
     let palette = &config.palette;
     render_sidebar_background(buffer, area, palette);
     let (workspace_area, divider_y, detail_area) = collapsed_sidebar_sections(area);
+    if workspace_area.y > area.y {
+        put_text(
+            buffer,
+            area.x,
+            area.y,
+            workspace_area.width,
+            &config.session_name.chars().take(1).collect::<String>(),
+            Style::default()
+                .fg(palette.overlay0)
+                .add_modifier(Modifier::BOLD),
+        );
+    }
     for (index, workspace) in snapshot
         .workspaces
         .iter()
@@ -204,7 +220,7 @@ pub(crate) fn render_sidebar(
         workspace_area.x,
         workspace_area.y,
         workspace_area.width,
-        " spaces",
+        &format!(" {}", config.session_name),
         Style::default()
             .fg(palette.overlay0)
             .add_modifier(Modifier::BOLD),

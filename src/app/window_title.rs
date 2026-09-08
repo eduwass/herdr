@@ -19,13 +19,20 @@ impl App {
                 .ok()
                 .flatten()
                 .map(|template| {
-                    // Resolve the hostname once here rather than per render.
+                    // Resolve the hostname and session once here rather than per render;
+                    // neither changes for the life of the server.
                     let hostname = if template.uses(WindowTitleToken::Hostname) {
                         crate::platform::hostname().unwrap_or_default()
                     } else {
                         String::new()
                     };
-                    (template, hostname)
+                    let session = if template.uses(WindowTitleToken::Session) {
+                        crate::session::active_name()
+                            .unwrap_or_else(|| crate::session::DEFAULT_SESSION_NAME.to_string())
+                    } else {
+                        String::new()
+                    };
+                    (template, hostname, session)
                 });
     }
 
@@ -40,13 +47,13 @@ impl App {
     pub(crate) fn window_title_uses_terminal_title(&self) -> bool {
         self.window_title_template
             .as_ref()
-            .is_some_and(|(template, _)| template.uses(WindowTitleToken::TerminalTitle))
+            .is_some_and(|(template, _, _)| template.uses(WindowTitleToken::TerminalTitle))
     }
 
     /// Renders the configured outer window title, or `None` when window titles
     /// are disabled or every token resolved empty.
     pub(crate) fn window_title(&self) -> Option<String> {
-        let (template, hostname) = self.window_title_template.as_ref()?;
+        let (template, hostname, session) = self.window_title_template.as_ref()?;
         let workspace = self
             .state
             .active
@@ -57,6 +64,7 @@ impl App {
             match part {
                 WindowTitlePart::Literal(literal) => title.push_str(literal),
                 WindowTitlePart::Token(WindowTitleToken::Hostname) => title.push_str(hostname),
+                WindowTitlePart::Token(WindowTitleToken::Session) => title.push_str(session),
                 WindowTitlePart::Token(WindowTitleToken::Workspace) => {
                     if let Some(workspace) = workspace {
                         title.push_str(
@@ -149,6 +157,15 @@ mod tests {
         terminal.set_terminal_title(Some("⠋ building".into()));
 
         assert_eq!(app.window_title().as_deref(), Some("api|building"));
+    }
+
+    #[test]
+    fn renders_session_name() {
+        let mut app = test_app();
+        app.configure_window_title("[{session}] {workspace}");
+
+        // Unit tests run without HERDR_SESSION, which is the unnamed default session.
+        assert_eq!(app.window_title().as_deref(), Some("[default] herd"));
     }
 
     #[test]

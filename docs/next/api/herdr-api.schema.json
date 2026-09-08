@@ -3162,6 +3162,38 @@
           ],
           "type": "object"
         },
+        "PaneResizeAreaParams": {
+          "properties": {
+            "amount": {
+              "format": "float",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "mode": {
+              "$ref": "#/schemas/request/$defs/PaneResizeMode"
+            },
+            "pane_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "mode"
+          ],
+          "type": "object"
+        },
+        "PaneResizeMode": {
+          "enum": [
+            "grow",
+            "shrink",
+            "reset"
+          ],
+          "type": "string"
+        },
         "PaneResizeParams": {
           "properties": {
             "amount": {
@@ -5683,6 +5715,22 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/PaneResizeParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "pane.resize_area",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneResizeAreaParams"
             }
           },
           "required": [

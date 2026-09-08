@@ -150,7 +150,8 @@ fn non_overlay_ctrl_v_is_forwarded_to_the_focused_pane() {
 
 #[test]
 fn desktop_composition_keeps_shell_outside_origin_relative_surface() {
-    let config = ClientShellConfig::from_config(&Config::default());
+    let mut config = ClientShellConfig::from_config(&Config::default());
+    config.session_name = "test-session".into();
     let mut state = ClientShellState::new(config);
     state.set_snapshot(Box::new(snapshot()));
     state.set_pane_surface(surface());
@@ -166,7 +167,7 @@ fn desktop_composition_keeps_shell_outside_origin_relative_surface() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(text.contains("spaces"));
+    assert!(text.contains("test-session"));
     assert!(text.contains("client-shell"));
     assert!(text.contains("main"));
     assert!(text.contains("LIVE"));

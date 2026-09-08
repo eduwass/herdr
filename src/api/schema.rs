@@ -163,6 +163,8 @@ pub enum Method {
     PaneFocusDirection(PaneFocusDirectionParams),
     #[serde(rename = "pane.resize")]
     PaneResize(PaneResizeParams),
+    #[serde(rename = "pane.resize_area")]
+    PaneResizeArea(PaneResizeAreaParams),
     #[serde(rename = "pane.scroll")]
     PaneScroll(PaneScrollParams),
     #[serde(rename = "pane.edit_scrollback")]

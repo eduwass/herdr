@@ -897,19 +897,7 @@ impl ClientShellState {
 
         if matches!(self.overlay, Some(ClientShellOverlay::ConfirmClose(_))) {
             if key.code == KeyCode::Enter {
-                let Some(ClientShellOverlay::ConfirmClose(confirm)) = self.overlay.take() else {
-                    return;
-                };
-                self.push_endpoint_method(
-                    crate::api::schema::Method::WorkspaceClose(
-                        crate::api::schema::WorkspaceCloseParams {
-                            workspace_id: confirm.workspace_id,
-                            close_group: true,
-                        },
-                    ),
-                    outcome,
-                );
-                outcome.repaint = true;
+                self.accept_close_overlay(outcome);
             } else if key.code == KeyCode::Esc {
                 self.overlay = None;
                 self.mode = ClientShellMode::Navigate;
@@ -1101,6 +1089,7 @@ impl ClientShellState {
         };
         self.overlay = Some(ClientShellOverlay::ConfirmClose(
             ClientConfirmCloseOverlay {
+                running_close: None,
                 workspace_id,
                 title: if closes_group {
                     "Close worktree group?".to_owned()

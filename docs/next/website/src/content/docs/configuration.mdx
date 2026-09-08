@@ -333,7 +333,7 @@ Herdr emulates the terminals in its panes, so an `OSC 0`/`OSC 2` title written i
 window_title = "{hostname}: {workspace}"
 ```
 
-Tokens are `{hostname}`, `{workspace}`, `{tab}`, `{pane}` (the focused pane's manual name), and `{terminal_title}` (the focused pane's own terminal title with spinner frames stripped). Write `{{` and `}}` for literal braces. A token with no value renders empty.
+Tokens are `{hostname}`, `{session}` (the session name, `default` when unnamed), `{workspace}`, `{tab}`, `{pane}` (the focused pane's manual name), and `{terminal_title}` (the focused pane's own terminal title with spinner frames stripped). Write `{{` and `}}` for literal braces. A token with no value renders empty.
 
 The title renders on the Herdr server, so `{hostname}` names the machine the panes run on, including when you attach with `herdr --remote` or run `herdr` over SSH. Set `window_title = ""` to leave the outer terminal title alone.
 
@@ -423,6 +423,8 @@ The first matching rule wins. Its specified style fields override the occurrence
 
 Rules work with text-valued built-ins and custom `$name` tokens in Agent rows, `rows_by_agent` overrides, and Space rows. Custom tokens match their reported value: `$load` reporting `"90"` selects red and bold above, `"60"` selects yellow, and `"90%"` keeps white. Unreported tokens still disappear. `state_icon` and composite `git_status` accept fixed styles only, not rules. Unknown conditions and malformed rules are rejected when loading config; regex, fuzzy matching, and scripts are not supported.
 
+`confirm_close_running` adds a tmux-style confirmation when you close a pane that has a non-shell process running in it, such as a long-running script or a coding agent like Claude. When enabled and the pane's foreground process is something other than its own shell, Herdr prompts `kill pane running <cmd>?` before closing. It is off by default; panes sitting at the shell prompt always close immediately. The prompt only applies to interactive closes (keybinding, context menu): `herdr pane close`, `herdr tab close`, and other API clients close immediately so scripts and agents are never blocked on a modal.
+
 `row_gap` controls the blank terminal rows between entries, independently for the Agent and Space panels. It defaults to `0`, which packs entries together; set it to `1` to restore the previous spacing. It does not add spacing between the content lines declared in `rows`. Consecutive indented worktree children remain packed as one Space group.
 
 Override the complete Agent layout for a known agent under `rows_by_agent`:
@@ -467,6 +469,8 @@ Use `herdr workspace report-metadata` in the same way for custom Space tokens. U
 Metadata reporters provide values only; styling stays in the local sidebar configuration. See [CLI reference: report metadata](/docs/cli-reference/#panes) for limits, clearing, sequencing, and expiry.
 
 Sidebar row settings affect only the expanded desktop sidebar. Collapsed and mobile views keep their compact layouts.
+
+Set `pane_border_shows_osc_title = true` to show the agent's live OSC/session title (the task line an agent emits, such as "Friendly greeting") in the pane border. The OSC title takes precedence over the detected agent name, but a manual pane rename always wins over it.
 
 ## Notifications
 

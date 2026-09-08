@@ -266,6 +266,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # Empty/off disables this. Shift is intentionally unsupported because terminals commonly reserve Shift+mouse.
 # right_click_passthrough_modifier = ""
 
+# Toggle pane zoom on a rapid double right-click inside the same pane.
+# pane_double_right_click_zoom = false
+
 # Force a full redraw when the outer terminal regains focus.
 # Set false to reduce visible flashing when switching back to Herdr.
 # Trade-off: rare host terminal surface corruption may persist until the next full redraw.
@@ -276,6 +279,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 
 # Ask for confirmation before closing a workspace
 # confirm_close = true
+
+# Ask for tmux-style confirmation before closing a pane that has a non-shell
+# process (a script or agent) running in it. Interactive closes only; the
+# CLI/API always close immediately.
+# confirm_close_running = false
 
 # Ask for a tab name before creating a new tab.
 # Set false to create tabs immediately with generated names.
@@ -319,11 +327,19 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 
 # Title Herdr writes to the terminal it runs in, which is what window managers
 # show in title, tab, and group bars. Tokens are {hostname}, {workspace}, {tab},
-# {pane}, and {terminal_title}; {{ and }} are literal braces.
+# {pane}, {session}, and {terminal_title}; {{ and }} are literal braces.
 # The title renders on the Herdr server, so {hostname} names the host the panes
 # run on even when attaching from a remote client.
 # Set to "" to leave the outer terminal title alone.
 # window_title = "{hostname}: {workspace}"
+
+# Show the agent's live OSC/session title (the task line an agent emits) in the pane
+# border. Takes precedence over the detected agent name, but a manual pane rename
+# always wins.
+# pane_border_shows_osc_title = false
+
+# Use rounded corner box-drawing characters for split pane borders.
+# rounded_pane_borders = false
 
 # Agent panel ordering: "spaces" (grouped by space) or "priority" (attention queue).
 # "workspaces" is accepted as an alias for "spaces".
@@ -386,6 +402,11 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # By default, droid is muted.
 # [ui.sound.agents]
 # droid = "off"
+#
+# To override the built-in audio players entirely, set the HERDR_SOUND_PLAYER
+# environment variable to a command. It is invoked with the mp3 file path as its
+# single argument. Useful when herdr runs on a headless/remote host (e.g. over
+# SSH) and playback must be bridged to another machine.
 
 [session]
 # Resume supported AI-agent panes into their native conversation sessions after

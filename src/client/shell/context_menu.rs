@@ -50,6 +50,7 @@ impl ClientContextMenuOverlay {
                 source_pane_id,
                 has_manual_label,
                 right_click_passthrough,
+                can_move_to_new_tab,
                 ..
             } => {
                 let mut items = vec![item("Rename pane", Action::RenamePane)];
@@ -58,6 +59,9 @@ impl ClientContextMenuOverlay {
                 }
                 if source_pane_id.is_some() {
                     items.push(item("Swap with focused pane", Action::SwapWithFocusedPane));
+                }
+                if *can_move_to_new_tab {
+                    items.push(item("Move to new tab", Action::MoveToNewTab));
                 }
                 items.extend([
                     item("Split right", Action::SplitRight),
@@ -159,6 +163,12 @@ impl ClientShellState {
                 source_pane_id,
                 has_manual_label: pane.label.is_some(),
                 right_click_passthrough: pane.right_click_passthrough,
+                can_move_to_new_tab: snapshot
+                    .panes
+                    .iter()
+                    .filter(|other| other.tab_id == pane.tab_id)
+                    .count()
+                    > 1,
             },
             x,
             y,
@@ -446,6 +456,17 @@ impl ClientShellState {
                 Method::PaneZoom(PaneZoomParams {
                     pane_id: Some(pane_id),
                     mode: PaneZoomMode::Toggle,
+                }),
+                outcome,
+            ),
+            ClientContextMenuAction::MoveToNewTab => self.push_endpoint_method(
+                Method::PaneMove(crate::api::schema::PaneMoveParams {
+                    pane_id,
+                    destination: crate::api::schema::PaneMoveDestination::NewTab {
+                        workspace_id: Some(workspace_id),
+                        label: None,
+                    },
+                    focus: true,
                 }),
                 outcome,
             ),

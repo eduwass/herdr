@@ -22,7 +22,7 @@ pub(crate) fn pane_is_scrolled_back(rt: &TerminalRuntime) -> bool {
         .is_some_and(|metrics| metrics.offset_from_bottom > 0)
 }
 
-fn pane_border_title(label: &str, pane_width: u16, _focused: bool) -> Option<String> {
+fn pane_border_title(label: &str, pane_width: u16) -> Option<String> {
     let label = label.trim();
     if label.is_empty() || pane_width <= 4 {
         return None;
@@ -94,6 +94,7 @@ pub(crate) fn apply_pane_chrome(
     pane_borders: crate::config::PaneBordersConfig,
     pane_gaps: bool,
     pane_outer_borders: bool,
+    keep_outer_top_row: bool,
 ) -> Vec<PaneInfo> {
     let multi_pane = panes.len() > 1;
     let bordered = pane_borders.shows_borders(multi_pane);
@@ -141,7 +142,9 @@ pub(crate) fn apply_pane_chrome(
                     if info.rect.x == outer_left {
                         borders.remove(Borders::LEFT);
                     }
-                    if info.rect.y == outer_top {
+                    // Border titles render on the top border row; keep it as a
+                    // title bar even when outer borders are hidden.
+                    if info.rect.y == outer_top && !keep_outer_top_row {
                         borders.remove(Borders::TOP);
                     }
                     if info.rect.x.saturating_add(info.rect.width) == outer_right {
@@ -244,6 +247,7 @@ pub(super) fn resize_tab_panes(
         app.pane_borders,
         app.pane_gaps,
         app.pane_outer_borders,
+        app.pane_border_shows_osc_title,
     ) {
         let pane_inner = pane_inner_rect(info.rect, info.borders);
 
@@ -324,6 +328,7 @@ pub(super) fn compute_pane_infos_for_tab(
         app.pane_borders,
         app.pane_gaps,
         app.pane_outer_borders,
+        app.pane_border_shows_osc_title,
     );
 
     for info in &mut pane_infos {
@@ -468,6 +473,7 @@ fn render_pane_borders(
     }
     add_split_border_cells(app.pane_gaps, split_borders, &mut cells);
 
+    let rounded = app.rounded_pane_borders;
     let buf = frame.buffer_mut();
     let area = buf.area;
     for ((x, y), line) in cells {
@@ -481,7 +487,7 @@ fn render_pane_borders(
         let focused = pane_infos
             .iter()
             .any(|info| info.is_focused && line_touches_pane(x, y, info, app.pane_gaps));
-        let symbol = line_cell_symbol(line);
+        let symbol = line_cell_symbol(line, rounded);
         if symbol.is_empty() {
             continue;
         }
@@ -635,8 +641,13 @@ fn render_pane_border_titles(
         let Some(title) = ws
             .pane_state(info.id)
             .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
-            .and_then(|terminal| terminal.border_label(app.show_agent_labels_on_pane_borders))
-            .and_then(|label| pane_border_title(&label, info.rect.width, info.is_focused))
+            .and_then(|terminal| {
+                terminal.border_label(
+                    app.show_agent_labels_on_pane_borders,
+                    app.pane_border_shows_osc_title,
+                )
+            })
+            .and_then(|label| pane_border_title(&label, info.rect.width))
         else {
             continue;
         };
@@ -663,17 +674,11 @@ fn render_pane_border_titles(
         if info.is_focused {
             style = style.add_modifier(Modifier::BOLD);
         }
-        buf.set_stringn(
-            start_x,
-            y,
-            title,
-            end_x.saturating_sub(start_x) as usize,
-            style,
-        );
+        buf.set_stringn(start_x, y, &title, (end_x - start_x) as usize, style);
     }
 }
 
-fn line_cell_symbol(line: LineCell) -> &'static str {
+fn line_cell_symbol(line: LineCell, rounded: bool) -> &'static str {
     match (line.up, line.down, line.left, line.right) {
         (true, true, true, true) => "┼",
         (true, true, true, false) => "┤",
@@ -686,10 +691,34 @@ fn line_cell_symbol(line: LineCell) -> &'static str {
         (false, false, true, true) | (false, false, true, false) | (false, false, false, true) => {
             "─"
         }
-        (false, true, false, true) => "┌",
-        (false, true, true, false) => "┐",
-        (true, false, false, true) => "└",
-        (true, false, true, false) => "┘",
+        (false, true, false, true) => {
+            if rounded {
+                "╭"
+            } else {
+                "┌"
+            }
+        }
+        (false, true, true, false) => {
+            if rounded {
+                "╮"
+            } else {
+                "┐"
+            }
+        }
+        (true, false, false, true) => {
+            if rounded {
+                "╰"
+            } else {
+                "└"
+            }
+        }
+        (true, false, true, false) => {
+            if rounded {
+                "╯"
+            } else {
+                "┘"
+            }
+        }
         _ => "",
     }
 }
@@ -850,28 +879,17 @@ mod tests {
     #[test]
     fn pane_border_title_trims_and_truncates() {
         assert_eq!(
-            pane_border_title(" claude ", 20, false).as_deref(),
+            pane_border_title(" claude ", 20).as_deref(),
             Some(" claude ")
         );
-        assert_eq!(
-            pane_border_title(" claude ", 20, true).as_deref(),
-            Some(" claude ")
-        );
-        assert_eq!(pane_border_title("", 20, false), None);
-        assert_eq!(
-            pane_border_title("abcdef", 8, false).as_deref(),
-            Some(" abc… ")
-        );
-        assert_eq!(
-            pane_border_title("abcdef", 8, true).as_deref(),
-            Some(" abc… ")
-        );
-        assert_eq!(pane_border_title("abcdef", 4, false), None);
+        assert_eq!(pane_border_title("", 20), None);
+        assert_eq!(pane_border_title("abcdef", 8).as_deref(), Some(" abc… "));
+        assert_eq!(pane_border_title("abcdef", 4), None);
     }
 
     #[test]
     fn pane_border_title_truncates_cjk_by_display_width() {
-        let title = pane_border_title("1 模块组织（已定）", 12, false).unwrap();
+        let title = pane_border_title("1 模块组织（已定）", 12).unwrap();
 
         assert_eq!(title, " 1 模块… ");
         assert!(display_width(title.as_str()) <= 10);
@@ -921,6 +939,7 @@ mod tests {
             PaneBordersConfig::Auto,
             false,
             true,
+            false,
         );
         let left = infos.iter().find(|info| info.id == root).unwrap();
         let right = infos.iter().find(|info| info.id == right).unwrap();
@@ -942,6 +961,7 @@ mod tests {
             PaneBordersConfig::Auto,
             false,
             true,
+            false,
         );
         let top = infos.iter().find(|info| info.id == root).unwrap();
         let bottom = infos.iter().find(|info| info.id == bottom).unwrap();
@@ -963,12 +983,34 @@ mod tests {
             PaneBordersConfig::Auto,
             false,
             false,
+            false,
         );
         let left = infos.iter().find(|info| info.id == root).unwrap();
         let right = infos.iter().find(|info| info.id == right).unwrap();
 
         assert_eq!(left.borders, Borders::NONE);
         assert_eq!(right.borders, Borders::LEFT);
+    }
+
+    #[test]
+    fn osc_title_border_keeps_outer_top_row_without_outer_borders() {
+        let mut workspace = Workspace::test_new("test");
+        let root = workspace.tabs[0].root_pane;
+        let right = workspace.test_split(ratatui::layout::Direction::Horizontal);
+        workspace.tabs[0].layout.focus_pane(root);
+
+        let infos = apply_pane_chrome(
+            workspace.tabs[0].layout.panes(Rect::new(0, 0, 100, 20)),
+            PaneBordersConfig::Auto,
+            false,
+            false,
+            true,
+        );
+        let left = infos.iter().find(|info| info.id == root).unwrap();
+        let right = infos.iter().find(|info| info.id == right).unwrap();
+
+        assert_eq!(left.borders, Borders::TOP);
+        assert_eq!(right.borders, Borders::TOP | Borders::LEFT);
     }
 
     #[test]
@@ -983,6 +1025,7 @@ mod tests {
             PaneBordersConfig::Auto,
             true,
             true,
+            false,
         );
         let left = infos.iter().find(|info| info.id == root).unwrap();
         let right = infos.iter().find(|info| info.id == right).unwrap();
@@ -1004,6 +1047,7 @@ mod tests {
             PaneBordersConfig::Off,
             true,
             true,
+            false,
         );
         let left = infos.iter().find(|info| info.id == root).unwrap();
         let right = infos.iter().find(|info| info.id == right).unwrap();
@@ -1024,6 +1068,7 @@ mod tests {
             PaneBordersConfig::Off,
             false,
             true,
+            false,
         );
 
         for info in infos {
@@ -1042,6 +1087,7 @@ mod tests {
             PaneBordersConfig::Auto,
             false,
             true,
+            false,
         );
         assert_eq!(default_infos[0].borders, Borders::NONE);
 
@@ -1050,12 +1096,14 @@ mod tests {
             PaneBordersConfig::Always,
             false,
             true,
+            false,
         );
         assert_eq!(framed_infos[0].borders, Borders::ALL);
 
         let no_outer_infos = apply_pane_chrome(
             workspace.tabs[0].layout.panes(area),
             PaneBordersConfig::Always,
+            false,
             false,
             false,
         );
