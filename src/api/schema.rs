@@ -5,6 +5,7 @@ pub mod commands;
 pub mod common;
 pub mod events;
 pub mod integrations;
+pub mod pane_seen;
 pub mod panes;
 pub mod plugins;
 pub mod response;
@@ -19,6 +20,7 @@ pub use commands::*;
 pub use common::*;
 pub use events::*;
 pub use integrations::*;
+pub use pane_seen::*;
 pub use panes::*;
 pub use plugins::*;
 pub use response::*;
@@ -183,6 +185,8 @@ pub enum Method {
     PaneGet(PaneTarget),
     #[serde(rename = "pane.focus")]
     PaneFocus(PaneTarget),
+    #[serde(rename = "pane.mark_seen")]
+    PaneMarkSeen(PaneMarkSeenParams),
     #[serde(rename = "pane.input.set")]
     PaneInputSet(PaneInputSetParams),
     #[serde(rename = "pane.link.activate")]

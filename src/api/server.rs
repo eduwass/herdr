@@ -453,6 +453,7 @@ pub(crate) fn api_method_name(method: &Method) -> &'static str {
         Method::PaneCurrent(_) => "pane.current",
         Method::PaneGet(_) => "pane.get",
         Method::PaneFocus(_) => "pane.focus",
+        Method::PaneMarkSeen(_) => "pane.mark_seen",
         Method::PaneInputSet(_) => "pane.input.set",
         Method::PaneLinkActivate(_) => "pane.link.activate",
         Method::PaneRename(_) => "pane.rename",

@@ -6,6 +6,7 @@ mod env;
 mod integrations;
 mod layouts;
 mod pane_graphics;
+mod pane_seen;
 mod panes;
 pub(crate) mod plugins;
 pub(super) mod responses;
@@ -1120,6 +1121,7 @@ impl App {
             Method::PaneCurrent(params) => return self.handle_pane_current(request.id, params),
             Method::PaneGet(target) => return self.handle_pane_get(request.id, target),
             Method::PaneFocus(target) => return self.handle_pane_focus(request.id, target),
+            Method::PaneMarkSeen(params) => return self.handle_pane_mark_seen(request.id, params),
             Method::PaneInputSet(params) => return self.handle_pane_input_set(request.id, params),
             Method::PaneLinkActivate(params) => {
                 return self.handle_pane_link_activate(request.id, params);
