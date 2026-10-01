@@ -877,7 +877,7 @@ impl ClientShellState {
 
         if matches!(self.overlay, Some(ClientShellOverlay::ConfirmClose(_))) {
             if key.code == KeyCode::Enter {
-                self.accept_close_confirmation(outcome);
+                self.accept_close_overlay(outcome);
             } else if key.code == KeyCode::Esc {
                 self.overlay = None;
                 self.mode = ClientShellMode::Navigate;
@@ -1111,6 +1111,7 @@ impl ClientShellState {
         };
         self.overlay = Some(ClientShellOverlay::ConfirmClose(
             ClientConfirmCloseOverlay {
+                running_close: None,
                 workspace_id,
                 tab_target,
                 title: if closes_group {

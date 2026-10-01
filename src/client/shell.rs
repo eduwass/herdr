@@ -8,6 +8,7 @@ mod workspace_navigation;
 use workspace_navigation::{PendingWorkspaceHighlight, WorkspaceNavigationTarget};
 mod composition;
 mod config;
+mod confirm_running;
 mod context_menu;
 mod copy_mode;
 mod endpoint_agent_state;

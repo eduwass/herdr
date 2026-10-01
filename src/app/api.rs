@@ -5,6 +5,7 @@ mod agents;
 mod env;
 mod integrations;
 mod layouts;
+mod pane_seen;
 mod panes;
 pub(crate) mod plugins;
 pub(super) mod responses;
@@ -1125,6 +1126,9 @@ impl App {
                 return self.handle_pane_focus_direction(request.id, params);
             }
             Method::PaneResize(params) => return self.handle_pane_resize(request.id, params),
+            Method::PaneResizeArea(params) => {
+                return self.handle_pane_resize_area(request.id, params)
+            }
             Method::PaneScroll(params) => return self.handle_pane_scroll(request.id, params),
             Method::PaneClear(target) => return self.handle_pane_clear(request.id, target),
             Method::PaneEditScrollback(target) => {
@@ -1143,6 +1147,7 @@ impl App {
             Method::PaneCurrent(params) => return self.handle_pane_current(request.id, params),
             Method::PaneGet(target) => return self.handle_pane_get(request.id, target),
             Method::PaneFocus(target) => return self.handle_pane_focus(request.id, target),
+            Method::PaneMarkSeen(params) => return self.handle_pane_mark_seen(request.id, params),
             Method::PaneInputSet(params) => return self.handle_pane_input_set(request.id, params),
             Method::PaneLinkResolve(params) => {
                 return self.handle_pane_link_resolve(request.id, params);

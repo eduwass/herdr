@@ -259,8 +259,10 @@ impl HeadlessServer {
                 | Method::PaneInputSet(_)
                 | Method::PaneLinkActivate(_)
                 | Method::PaneLinkResolve(_)
+                | Method::PaneMove(_)
                 | Method::PaneRename(_)
                 | Method::PaneResize(_)
+                | Method::PaneResizeArea(_)
                 | Method::PaneScroll(_)
                 | Method::PaneClear(_)
                 | Method::PaneSplit(_)
@@ -296,6 +298,8 @@ impl HeadlessServer {
                 | Method::PaneFocus(_)
                 | Method::PaneFocusDirection(_)
                 | Method::PaneResize(_)
+                | Method::PaneMove(_)
+                | Method::PaneResizeArea(_)
                 | Method::PaneSplit(_)
                 | Method::PaneSwap(_)
                 | Method::PaneZoom(_)
@@ -852,6 +856,7 @@ impl HeadlessServer {
         let create_focus_requested = match &msg.request.method {
             api::schema::Method::WorkspaceCreate(params) => params.focus,
             api::schema::Method::TabCreate(params) => params.focus,
+            api::schema::Method::PaneMove(params) => params.focus,
             _ => false,
         };
         let inspect_pane_move = matches!(

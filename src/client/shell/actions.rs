@@ -309,6 +309,9 @@ impl ClientShellState {
         method: crate::api::schema::Method,
         outcome: &mut ClientShellInput,
     ) {
+        if self.prepare_running_close(&method, outcome) {
+            return;
+        }
         self.push_endpoint_method_with_kind(method, PendingEndpointKind::Generic, outcome);
     }
 
@@ -561,6 +564,9 @@ impl ClientShellState {
             }
         }
         match pending.kind {
+            PendingEndpointKind::CloseProcessInfo(close) => {
+                return self.complete_running_close_probe(*close, result)
+            }
             PendingEndpointKind::Generic => {}
             PendingEndpointKind::PaneLinkResolve { .. } => unreachable!("handled above"),
             PendingEndpointKind::ProductAnnouncementDismiss { version, id } => {

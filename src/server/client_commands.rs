@@ -28,8 +28,11 @@ const CLIENT_SHELL_METHODS: &[&str] = &[
     "pane.input.set",
     "pane.link.activate",
     "pane.link.resolve",
+    "pane.move",
+    "pane.process_info",
     "pane.rename",
     "pane.resize",
+    "pane.resize_area",
     "pane.scroll",
     "pane.selection.read",
     "pane.split",
@@ -297,6 +300,13 @@ mod tests {
             actual.remove("pane.link.resolve").as_deref(),
             Some("f5e4a3e01453ae7b188f127ce951c12c20e0bebcc17cc364eeb6d1a01fd5bf81")
         );
+        // Fork-only additions do not change any published generation-one method shape.
+        for method in ["pane.move", "pane.process_info", "pane.resize_area"] {
+            assert!(
+                actual.remove(method).is_some(),
+                "missing fork method {method}"
+            );
+        }
 
         assert_eq!(
             actual, expected,
